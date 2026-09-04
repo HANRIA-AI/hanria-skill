@@ -108,11 +108,13 @@ def read_log(path):
             line = line.strip()
             if not line:
                 continue
-            try:
-                entries.append(json.loads(line))
-            except json.JSONDecodeError as exc:
-                raise SystemExit("line %d of %s is not valid JSON: %s"
-                                 % (i + 1, path, exc))
+            # Strict, like every other document this skill reads. An entry
+            # with a duplicate key is ambiguous: a reader sees the first value
+            # and json keeps the last, so a forged body can sit above the one
+            # the digest commits to and the chain still verifies as intact.
+            # Refused rather than resolved -- main turns SchemaError into a
+            # non-intact verdict, so append refuses the log as well.
+            entries.append(_schema.loads(line, "line %d of %s" % (i + 1, path)))
     return entries
 
 

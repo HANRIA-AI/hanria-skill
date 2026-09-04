@@ -240,6 +240,16 @@ def _check_prefixes(prefixes, what):
                 "%s contains %r, which has no path boundary: prefix matching is "
                 "literal, so it would also match a different host such as "
                 "%s.attacker.example. Add a trailing '/'." % (what, p, p))
+        if "/" not in p:
+            # A bare hostname or package name has no boundary at all, so
+            # "api.trusted.example" also matches "api.trusted.example.evil.test".
+            # The two guards above cover scheme://host and unterminated paths;
+            # this is the third shape, and it fell through both.
+            raise CheckError(
+                "%s contains %r, which has no boundary: prefix matching is "
+                "literal, so it would also match a different host or package "
+                "such as %s.attacker.example. End it with '/' to bound it."
+                % (what, p, p))
         if "/" in p and not p.endswith("/"):
             # "/srv/tickets" also matches "/srv/tickets-evil". Operators read a
             # path as a directory boundary; literal prefix matching does not.

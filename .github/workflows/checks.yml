@@ -93,7 +93,9 @@ jobs:
       - name: The log chain detects alteration and deletion
         run: |
           set +e
-          L=/tmp/chain.jsonl; rm -f $L
+          L=/tmp/chain.jsonl; rm -f $L $L.head $L.lock  # the head sidecar too, or a
+          # re-run starts with an empty log against a stale pin and the
+          # truncation detector correctly fails a chain that is simply new
           for a in read-ticket read-home refund; do
             python3 skills/hanria/scripts/check_action.py \
               --mandate skills/hanria/examples/mandate.example.json \
@@ -798,4 +800,100 @@ jobs:
                   '%s description contains ": ", which YAML reads as a nested mapping' % f
               print('%s: name=%s, description %d chars, both parsers agree'
                     % (f, data['name'], len(data['description'])))
+          PY
+
+      - name: A prefix with no boundary is refused, in every shape
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, tempfile, os
+          # Three shapes of an unbounded prefix. The first two were already
+          # refused; the bare hostname fell through both guards and permitted
+          # a request to an attacker-controlled host. Regression test for that.
+          BASE = {"schema_version": "0.2-draft", "mandate_id": "m", "issued_by": "t",
+                  "purpose": "boundary regression", "not_valid_after": "2099-01-01T00:00:00Z",
+                  "default": "deny", "requires_human": []}
+          ACTION = {"schema_version": "0.1-draft",
+                    "requested_by": {"agent": "t", "session": "s"},
+                    "justification": "regression",
+                    "operation": {"kind": "network", "verb": "post",
+                                  "target": "api.trusted.example.attacker.test/steal"}}
+          d = tempfile.mkdtemp()
+          a = os.path.join(d, "a.json")
+          json.dump(ACTION, open(a, "w"))
+          for bad in ("https://api.trusted.example", "/srv/data", "api.trusted.example"):
+              m = dict(BASE, clauses=[{"id": "c1", "effect": "permit",
+                       "match": {"kind": ["network"], "verb": ["post"],
+                                 "target_prefix": [bad]}}])
+              mp = os.path.join(d, "m.json")
+              json.dump(m, open(mp, "w"))
+              r = subprocess.run(["python3", "skills/hanria/scripts/check_action.py",
+                                  "--mandate", mp, "--action", a],
+                                 capture_output=True, text=True)
+              out = json.loads(r.stdout)
+              assert out["outcome"] != "permit", \
+                  "unbounded prefix %r produced %s" % (bad, out["outcome"])
+              assert "boundary" in out["reason"], \
+                  "unbounded prefix %r was not refused for its boundary: %s" % (bad, out["reason"])
+          # A properly bounded prefix must still permit its own target.
+          m = dict(BASE, clauses=[{"id": "c1", "effect": "permit",
+                   "match": {"kind": ["network"], "verb": ["post"],
+                             "target_prefix": ["api.trusted.example/"]}}])
+          mp = os.path.join(d, "m.json")
+          json.dump(m, open(mp, "w"))
+          good = dict(ACTION)
+          good["operation"] = dict(ACTION["operation"], target="api.trusted.example/v1/x")
+          gp = os.path.join(d, "g.json")
+          json.dump(good, open(gp, "w"))
+          r = subprocess.run(["python3", "skills/hanria/scripts/check_action.py",
+                              "--mandate", mp, "--action", gp], capture_output=True, text=True)
+          assert json.loads(r.stdout)["outcome"] == "permit", "bounded prefix stopped working"
+          # ...and must refuse the attacker host.
+          r = subprocess.run(["python3", "skills/hanria/scripts/check_action.py",
+                              "--mandate", mp, "--action", a], capture_output=True, text=True)
+          assert json.loads(r.stdout)["outcome"] == "deny", "bounded prefix let the attacker host through"
+          print("unbounded prefixes refused in all three shapes; bounded prefix still correct")
+          PY
+
+      - name: A log entry with a duplicate key never verifies as intact
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, tempfile, os
+          # A duplicate key makes an entry ambiguous: a reader sees the first
+          # value, json keeps the last. The chain committed to the last, so a
+          # forged body could sit above it and the log still read "intact".
+          d = tempfile.mkdtemp()
+          log = os.path.join(d, "log.jsonl")
+          a = os.path.join(d, "a.json")
+          json.dump({"schema_version": "0.1-draft",
+                     "requested_by": {"agent": "t", "session": "s"},
+                     "justification": "regression",
+                     "operation": {"kind": "file", "verb": "read",
+                                   "target": "/srv/tickets/x.json"}}, open(a, "w"))
+          o = os.path.join(d, "o.json")
+          r = subprocess.run(["python3", "skills/hanria/scripts/check_action.py",
+                              "--mandate", "skills/hanria/examples/mandate.example.json",
+                              "--action", a], capture_output=True, text=True)
+          open(o, "w").write(r.stdout)
+          subprocess.run(["python3", "skills/hanria/scripts/record.py", "append",
+                          "--log", log, "--action", a, "--outcome", o],
+                         capture_output=True, text=True, check=True)
+          r = subprocess.run(["python3", "skills/hanria/scripts/record.py", "verify",
+                              "--log", log], capture_output=True, text=True)
+          assert json.loads(r.stdout)["status"] == "intact", "baseline log did not verify"
+          entry = json.loads(open(log).read().strip())
+          rest = {k: v for k, v in entry.items() if k != "body"}
+          forged = json.dumps({"forged": True}, separators=(",", ":"))
+          real = json.dumps(entry["body"], sort_keys=True, separators=(",", ":"))
+          open(log, "w").write(json.dumps(rest, separators=(",", ":"))[:-1]
+                               + ',"body":' + forged + ',"body":' + real + "}\n")
+          r = subprocess.run(["python3", "skills/hanria/scripts/record.py", "verify",
+                              "--log", log], capture_output=True, text=True)
+          assert json.loads(r.stdout).get("status") != "intact", \
+              "a forged duplicate-key entry verified as intact"
+          # append must refuse the same log rather than chaining onto it.
+          r = subprocess.run(["python3", "skills/hanria/scripts/record.py", "append",
+                              "--log", log, "--action", a, "--outcome", o],
+                             capture_output=True, text=True)
+          assert r.returncode != 0, "append accepted a log with an ambiguous entry"
+          print("duplicate-key entries refused by both verify and append")
           PY
