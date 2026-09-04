@@ -334,12 +334,24 @@ def _die(reason):
     raise SystemExit(ERROR)
 
 
+class _Parser(argparse.ArgumentParser):
+    """argparse exits 2 on a usage error, and 2 is documented as `escalate`.
+
+    The top-level parser had this override as an instance patch, but
+    `add_subparsers` builds each subcommand's parser from a class, so a missing
+    `--action` under `append` or a missing `--log` under `verify` still exited
+    2 and read as an approval request. One class, used for both levels.
+    """
+
+    def error(self, message):
+        _die("usage: %s" % message)
+
+
 def main():
-    ap = argparse.ArgumentParser(
+    ap = _Parser(
         description="Append decisions to a local hash-chained log and verify it. "
                     "Local integrity detection only; not evidence to a third party.")
-    ap.error = lambda m: (_die("usage: %s" % m))
-    sub = ap.add_subparsers(dest="command", required=True)
+    sub = ap.add_subparsers(dest="command", required=True, parser_class=_Parser)
 
     a = sub.add_parser("append", help="append one decision")
     a.add_argument("--log", required=True)

@@ -725,6 +725,14 @@ jobs:
             || { echo "a usage error must still print an outcome object"; exit 1; }
           out=$(python3 skills/hanria/scripts/record.py 2>&1); code=$?
           test "$code" = "3" || { echo "record usage error must exit 3, got $code"; exit 1; }
+          # Subcommand usage errors too: these exited 2 (escalate) until the parser class was
+          # applied to the subparsers as well as the top level.
+          for args in "append --log /tmp/usage.log" "verify" "append" "append --log /tmp/usage.log --action /tmp/nope.json"; do
+            out=$(python3 skills/hanria/scripts/record.py $args 2>&1); code=$?
+            test "$code" = "3" || { echo "record.py $args: usage error must exit 3, got $code"; echo "$out"; exit 1; }
+            echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['status']=='error'" \
+              || { echo "record.py $args: a usage error must print a status object"; echo "$out"; exit 1; }
+          done
           echo "usage errors exit 3 with an outcome object"
       - name: A log entry field outside the digest is refused
         run: |
