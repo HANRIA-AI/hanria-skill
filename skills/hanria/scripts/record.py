@@ -38,6 +38,12 @@ import json
 import os
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _schema  # noqa: E402
+
+SCHEMA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schema")
+ENTRY_KEYS = {"index", "previous", "digest", "body"}
+
 # Domain separation, so a digest computed here cannot be confused with one
 # computed by any other component.
 TAG = b"hanria-skill-log-v1"
@@ -131,7 +137,18 @@ def verify(path, expect_head=None):
                 print(json.dumps({
                     "status": "broken", "at": i,
                     "reason": "entry is missing %r" % field}, indent=2))
-                return 1
+                return BROKEN
+        # Only `body` is committed to by the digest, so any other field an entry
+        # carries would be shown to a reader while sitting outside the chain.
+        # Refuse rather than let unverified data travel inside a verified entry.
+        extra = set(entry) - ENTRY_KEYS
+        if extra:
+            print(json.dumps({
+                "status": "broken", "at": i,
+                "reason": "entry carries field(s) %s that the digest does not "
+                          "cover; anything outside `body` is unverified"
+                          % ", ".join(sorted(repr(e) for e in extra))}, indent=2))
+            return BROKEN
         if entry["index"] != i:
             print(json.dumps({
                 "status": "broken", "at": i,
@@ -191,10 +208,17 @@ def append(path, action_path, outcome_path):
             raise SystemExit("no %s file at %s" % (what, p))
 
 
-    with open(action_path, encoding="utf-8") as fh:
-        action = json.load(fh)
-    with open(outcome_path, encoding="utf-8") as fh:
-        outcome = json.load(fh)
+    def _read(path, schema_name, what):
+        with open(path, encoding="utf-8") as fh:
+            doc = _schema.loads(fh.read(), "%s at %s" % (what, path))
+        _schema.validate(doc, _schema.load(os.path.join(SCHEMA_DIR, schema_name)), what)
+        return doc
+
+    # What is recorded is validated before it is committed to. Otherwise a
+    # fabricated permit, or a malformed outcome, would be hashed into the chain
+    # and thereby made to look checked.
+    action = _read(action_path, "action-request.schema.json", "action")
+    outcome = _read(outcome_path, "action-outcome.schema.json", "outcome")
 
     # Refuse to append to a log that is already broken, so a damaged chain is
     # not buried under later entries that verify against the damage.
@@ -243,10 +267,16 @@ def append(path, action_path, outcome_path):
     return 0
 
 
+def _die(reason):
+    print(json.dumps({"status": "error", "reason": reason}, indent=2))
+    raise SystemExit(ERROR)
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Append decisions to a local hash-chained log and verify it. "
                     "Local integrity detection only; not evidence to a third party.")
+    ap.error = lambda m: (_die("usage: %s" % m))
     sub = ap.add_subparsers(dest="command", required=True)
 
     a = sub.add_parser("append", help="append one decision")
@@ -265,11 +295,16 @@ def main():
         if args.command == "append":
             return append(args.log, args.action, args.outcome)
         return verify(args.log, args.expect_head)
+    except _schema.SchemaError as exc:
+        print(json.dumps({"status": "error", "reason": str(exc)}, indent=2))
+        return ERROR
     except SystemExit as exc:
+        if exc.code == ERROR:
+            raise
         # Documented contract: 3 means error. A bare SystemExit carrying a
         # message would otherwise exit 1 and be read as "chain broken".
         print(json.dumps({"status": "error", "reason": str(exc.code)}, indent=2))
-        return 3
+        return ERROR
     except Exception as exc:  # noqa: BLE001 - deliberate
         print(json.dumps({"status": "error",
                           "reason": "%s: %s" % (type(exc).__name__, exc)}, indent=2))

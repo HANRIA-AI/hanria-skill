@@ -4,35 +4,108 @@
   "title": "HANRIA action request",
   "description": "A typed description of a proposed operation, submitted by an agent to a local HANRIA runtime. MUST NOT contain credentials, secrets, private keys, or tokens.",
   "type": "object",
-  "required": ["schema_version", "requested_by", "operation", "justification"],
+  "required": [
+    "schema_version",
+    "requested_by",
+    "operation",
+    "justification"
+  ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "const": "0.1-draft", "description": "Draft. The runtime does not exist; this shape may change." },
+    "schema_version": {
+      "const": "0.1-draft",
+      "description": "Draft. The runtime does not exist; this shape may change."
+    },
     "requested_by": {
-      "type": "object", "required": ["agent"], "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "agent"
+      ],
+      "additionalProperties": false,
       "properties": {
-        "agent": { "type": "string", "description": "Identifier of the requesting agent." },
-        "session": { "type": "string", "description": "Optional session or task identifier." },
-        "on_behalf_of": { "type": "string", "description": "Optional identifier of the human or system the agent acts for." }
+        "agent": {
+          "type": "string",
+          "description": "Identifier of the requesting agent."
+        },
+        "session": {
+          "type": "string",
+          "description": "Optional session or task identifier."
+        },
+        "on_behalf_of": {
+          "type": "string",
+          "description": "Optional identifier of the human or system the agent acts for."
+        }
       }
     },
     "operation": {
-      "type": "object", "required": ["kind"], "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false,
       "properties": {
-        "kind": { "enum": ["file", "process", "package", "network", "device", "credential_use", "transaction", "administrative"] },
-        "target": { "type": "string", "description": "What the operation acts on. A path, host, package name, or resource identifier. NEVER a secret." },
-        "verb": { "type": "string", "description": "What is to be done to the target, e.g. read, write, execute, install, connect, sign, transfer." },
-        "parameters": { "type": "object", "description": "Non-secret parameters. A runtime MUST reject any request whose parameters appear to contain a credential." },
-        "amount": {
-          "type": "object", "additionalProperties": false,
-          "properties": { "value": { "type": "string", "description": "Decimal as a string, to avoid float error." }, "currency": { "type": "string" } }
+        "kind": {
+          "enum": [
+            "file",
+            "process",
+            "package",
+            "network",
+            "device",
+            "credential_use",
+            "transaction",
+            "administrative"
+          ]
         },
-        "counterparty": { "type": "string" }
+        "target": {
+          "type": "string",
+          "description": "What the operation acts on. A path, host, package name, or resource identifier. NEVER a secret."
+        },
+        "verb": {
+          "type": "string",
+          "description": "What is to be done to the target, e.g. read, write, execute, install, connect, sign, transfer."
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Non-secret parameters. A runtime MUST reject any request whose parameters appear to contain a credential."
+        },
+        "amount": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "value": {
+              "type": "string",
+              "description": "Decimal as a string, to avoid float error.",
+              "minLength": 1
+            },
+            "currency": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "value",
+            "currency"
+          ],
+          "description": "An amount. Both fields are required: a bare amount object describes nothing a ceiling could be compared against."
+        },
+        "counterparty": {
+          "type": "string"
+        }
       }
     },
-    "justification": { "type": "string", "minLength": 1, "description": "Why the agent believes this is within its mandate. Free text, for the record." },
-    "mandate_ref": { "type": "string", "description": "Optional reference to the owner-defined mandate the agent believes authorizes this." },
-    "idempotency_key": { "type": "string", "description": "Optional. Lets a runtime refuse a duplicate rather than perform an operation twice." }
+    "justification": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Why the agent believes this is within its mandate. Free text, for the record."
+    },
+    "mandate_ref": {
+      "type": "string",
+      "description": "Optional reference to the owner-defined mandate the agent believes authorizes this."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "Optional. Lets a runtime refuse a duplicate rather than perform an operation twice."
+    }
   },
   "$comment": "Forbidden anywhere in an instance: credential, secret, private_key, token, password, api_key. A runtime is expected to refuse a request containing them rather than strip them."
 }

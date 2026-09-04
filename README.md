@@ -1,7 +1,7 @@
 # HANRIA Skill
 
 **Check a proposed agent action against an operator-written mandate, and keep a hash-chained record
-of the decision.** Free, MIT, Python 3 standard library only. Runs locally with no network calls.
+of the decision.** Free, MIT, Python 3 standard library only. Runs locally with no network calls, and requires no credential.
 
 ---
 

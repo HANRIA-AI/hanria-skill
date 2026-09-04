@@ -4,7 +4,13 @@
   "title": "HANRIA mandate",
   "description": "An operator-authored statement of what an agent may do. Written by a person, read by an agent, evaluated locally. A mandate is advisory: it describes intended authority and supports a local check, but it does not enforce anything. Enforcement requires a component that exclusively holds the credentials and can refuse.",
   "type": "object",
-  "required": ["schema_version", "mandate_id", "purpose", "default", "clauses"],
+  "required": [
+    "schema_version",
+    "mandate_id",
+    "purpose",
+    "default",
+    "clauses"
+  ],
   "additionalProperties": false,
   "properties": {
     "schema_version": {
@@ -31,15 +37,28 @@
       "description": "RFC 3339 timestamp. After this instant every action is denied. Absent means no expiry, which is discouraged: an unbounded mandate is the condition that lets delegated authority outlive the task it was granted for."
     },
     "default": {
-      "enum": ["deny", "escalate"],
+      "enum": [
+        "deny",
+        "escalate"
+      ],
       "description": "What happens when no clause matches. 'permit' is deliberately not an option: a mandate that permits by default cannot express a limit."
     },
     "requires_human": {
       "type": "array",
       "description": "Operation kinds that always require a person, even where a clause permits them. These escalate rather than permit.",
       "items": {
-        "enum": ["file", "process", "package", "network", "device", "credential_use", "transaction", "administrative"]
-      }
+        "enum": [
+          "file",
+          "process",
+          "package",
+          "network",
+          "device",
+          "credential_use",
+          "transaction",
+          "administrative"
+        ]
+      },
+      "minItems": 0
     },
     "clauses": {
       "type": "array",
@@ -47,7 +66,11 @@
       "description": "Evaluated in order. The first matching clause decides. A request matching no clause takes the mandate default.",
       "items": {
         "type": "object",
-        "required": ["id", "effect", "match"],
+        "required": [
+          "id",
+          "effect",
+          "match"
+        ],
         "additionalProperties": false,
         "properties": {
           "id": {
@@ -56,7 +79,11 @@
             "description": "Identifier for this clause. Returned with every decision so a reviewer can see which sentence of the mandate was relied on."
           },
           "effect": {
-            "enum": ["permit", "deny", "escalate"],
+            "enum": [
+              "permit",
+              "deny",
+              "escalate"
+            ],
             "description": "What this clause does when it matches."
           },
           "note": {
@@ -65,7 +92,9 @@
           },
           "match": {
             "type": "object",
-            "required": ["kind"],
+            "required": [
+              "kind"
+            ],
             "additionalProperties": false,
             "description": "All present conditions must hold for the clause to match.",
             "properties": {
@@ -74,32 +103,58 @@
                 "minItems": 1,
                 "description": "Operation kinds this clause covers.",
                 "items": {
-                  "enum": ["file", "process", "package", "network", "device", "credential_use", "transaction", "administrative"]
+                  "enum": [
+                    "file",
+                    "process",
+                    "package",
+                    "network",
+                    "device",
+                    "credential_use",
+                    "transaction",
+                    "administrative"
+                  ]
                 }
               },
               "verb": {
                 "type": "array",
-                "items": { "type": "string" },
-                "description": "Permitted verbs, matched case-insensitively and exactly. Absent means any verb."
+                "items": {
+                  "type": "string"
+                },
+                "description": "Permitted verbs, matched case-insensitively and exactly. Absent means any verb.",
+                "minItems": 1
               },
               "target_prefix": {
                 "type": "array",
-                "items": { "type": "string" },
-                "description": "The operation target must begin with one of these strings. Absent means any target. Prefix matching is deliberately literal: it does not resolve symlinks, normalize paths, or understand hostnames, so a target is compared as written."
+                "items": {
+                  "type": "string"
+                },
+                "description": "The operation target must begin with one of these strings. Absent means any target. Prefix matching is deliberately literal: it does not resolve symlinks, normalize paths, or understand hostnames, so a target is compared as written.",
+                "minItems": 1
               },
               "counterparty": {
                 "type": "array",
-                "items": { "type": "string" },
-                "description": "Permitted counterparties, matched exactly. Absent means any counterparty."
+                "items": {
+                  "type": "string"
+                },
+                "description": "Permitted counterparties, matched exactly. Absent means any counterparty.",
+                "minItems": 1
               },
               "max_amount": {
                 "type": "object",
-                "required": ["value", "currency"],
+                "required": [
+                  "value",
+                  "currency"
+                ],
                 "additionalProperties": false,
                 "description": "Ceiling for an operation carrying an amount. A request above it does not match this clause.",
                 "properties": {
-                  "value": { "type": "string", "description": "Decimal as a string, to avoid float error." },
-                  "currency": { "type": "string" }
+                  "value": {
+                    "type": "string",
+                    "description": "Decimal as a string, to avoid float error."
+                  },
+                  "currency": {
+                    "type": "string"
+                  }
                 }
               }
             }
@@ -108,5 +163,5 @@
       }
     }
   },
-  "$comment": "A mandate never contains a credential, secret, key or token. It names what may be done, not the means of doing it."
+  "$comment": "A mandate names what may be done, not the means of doing it, and must never contain a credential, secret, key or token. The checker refuses a mandate carrying recognizable credential material rather than evaluating it, because anything in a clause note is copied into the decision record. That detection is a heuristic and cannot be complete."
 }

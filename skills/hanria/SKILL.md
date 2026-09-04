@@ -8,8 +8,8 @@ license: see homepage
 # HANRIA — check an action against a mandate
 
 An operator writes down what you may do. You check a proposed action against it before acting,
-and you keep a record of what was decided. Both steps run locally, with no network calls and no
-credentials.
+and you keep a record of what was decided. Both steps run locally, with no network calls. The skill requires no credential, and refuses a
+request or mandate that carries one.
 
 ## What this skill can and cannot do
 

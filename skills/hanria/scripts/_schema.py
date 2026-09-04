@@ -36,12 +36,53 @@ _TYPES = {
 }
 
 # RFC 3339 date-time: a full date, a time, and an offset (or Z).
+# RFC 3339 5.6: date-time = full-date "T" full-time. The separator is T (or t);
+# a space is the ISO 8601 alternative and is not this format. Second 60 is a
+# legal leap second and must be accepted.
 _RFC3339 = re.compile(
-    r"^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$")
+    r"^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
+    r"[Tt](?:[01]\d|2[0-3]):[0-5]\d:(?:[0-5]\d|60)(\.\d+)?"
+    r"(?:[Zz]|[+-](?:[01]\d|2[0-3]):[0-5]\d)$")
 
 
 class SchemaError(Exception):
     """The document does not conform, or the schema uses something unsupported."""
+
+
+def _no_constants(literal):
+    # json.load accepts Python's NaN, Infinity and -Infinity, which are not JSON.
+    raise SchemaError("the document contains the non-JSON literal %r; a value "
+                      "that is not JSON was never validated by anything"
+                      % literal)
+
+
+def _no_duplicates(pairs):
+    """Reject duplicate object names instead of silently keeping the last.
+
+    A reviewer reading {"effect": "deny", "effect": "permit"} sees the denial.
+    Python's json keeps the last value, so the evaluator would see the
+    permission. Nothing about that is safe to resolve automatically.
+    """
+    seen = {}
+    for key, value in pairs:
+        if key in seen:
+            raise SchemaError(
+                "the document defines %r more than once. A reader sees the "
+                "first value and a parser keeps the last, so the two disagree "
+                "about what was written." % key)
+        seen[key] = value
+    return seen
+
+
+def loads(text, what="document"):
+    """Parse JSON strictly. Anything ambiguous is refused, not resolved."""
+    try:
+        return json.loads(text, parse_constant=_no_constants,
+                          object_pairs_hook=_no_duplicates)
+    except SchemaError:
+        raise
+    except json.JSONDecodeError as exc:
+        raise SchemaError("%s is not valid JSON: %s" % (what, exc))
 
 
 def _type_ok(value, expected):
@@ -111,6 +152,6 @@ def validate(doc, schema, path="$"):
                 validate(value, props[key], "%s.%s" % (path, key))
 
 
-def load(path):
+def load(path, what=None):
     with open(path, "r", encoding="utf-8") as fh:
-        return json.load(fh)
+        return loads(fh.read(), what or path)

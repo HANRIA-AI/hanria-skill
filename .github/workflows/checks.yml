@@ -521,3 +521,112 @@ jobs:
               assert not banned, '%s imports %s' % (f, sorted(banned))
           print('no network facility in the evaluator, recorder or validator')
           PY
+      - name: Non-standard JSON and duplicate keys are refused
+        run: |
+          set +e
+          M=skills/hanria/examples/mandate.example.json
+          printf '%s' '{"schema_version":"0.1-draft","requested_by":{"agent":"a"},"operation":{"kind":"file","verb":"read","target":"/srv/tickets/a","parameters":{"retry":NaN}},"justification":"t"}' > /tmp/nan.json
+          python3 skills/hanria/scripts/check_action.py --mandate $M --action /tmp/nan.json; code=$?
+          test "$code" = "3" || { echo "a NaN literal must be refused, got $code"; exit 1; }
+          printf '%s' '{"schema_version":"0.2-draft","mandate_id":"dup","purpose":"p","default":"deny","clauses":[{"id":"x","effect":"deny","effect":"permit","match":{"kind":["file"]}}]}' > /tmp/dup.json
+          python3 skills/hanria/scripts/check_action.py --mandate /tmp/dup.json \
+            --action skills/hanria/examples/action.read-ticket.json; code=$?
+          test "$code" = "3" || { echo "duplicate keys must be refused, got $code"; exit 1; }
+          echo "non-standard JSON and duplicate keys refused"
+      - name: RFC 3339 is enforced as RFC 3339
+        run: |
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, 'skills/hanria/scripts')
+          import _schema
+          ok = ["2999-01-01T00:00:00Z", "2016-12-31T23:59:60Z",
+                "2026-09-04T12:00:00+02:00", "2026-09-04t12:00:00z"]
+          bad = ["2999-01-01 00:00:00Z", "2999-01-01", "2999-13-01T00:00:00Z",
+                 "2026-09-04T25:00:00Z", "2026-09-04T12:00:00"]
+          for t in ok:
+              assert _schema._RFC3339.match(t), 'must accept %r' % t
+          for t in bad:
+              assert not _schema._RFC3339.match(t), 'must reject %r' % t
+          print('RFC 3339: space separator and partial timestamps rejected, leap second accepted')
+          PY
+      - name: A leap-second expiry is evaluated, not errored
+        run: |
+          set +e
+          python3 -c "import json; m=json.load(open('skills/hanria/examples/mandate.example.json')); m['not_valid_after']='2016-12-31T23:59:60Z'; json.dump(m,open('/tmp/leap.json','w'))"
+          out=$(python3 skills/hanria/scripts/check_action.py --mandate /tmp/leap.json \
+            --action skills/hanria/examples/action.read-ticket.json); code=$?
+          echo "$out"
+          test "$code" = "1" || { echo "a past leap-second expiry must deny, got $code"; exit 1; }
+          echo "$out" | grep -q 'expired' || { echo "expected an expiry denial"; exit 1; }
+      - name: A prefix with no boundary is refused, not documented
+        run: |
+          set +e
+          python3 -c "
+          import json
+          m=json.load(open('skills/hanria/examples/mandate.example.json'))
+          m['clauses']=[{'id':'p','effect':'permit','match':{'kind':['file'],'target_prefix':['/srv/tickets']}}]
+          json.dump(m,open('/tmp/sib.json','w'))"
+          python3 skills/hanria/scripts/check_action.py --mandate /tmp/sib.json \
+            --action skills/hanria/examples/action.read-ticket.json; code=$?
+          test "$code" = "3" || { echo "a path prefix with no trailing / must be refused, got $code"; exit 1; }
+          echo "sibling-matching prefix refused"
+      - name: A credential in the mandate is refused, not copied into the outcome
+        run: |
+          set +e
+          python3 -c "
+          import json
+          m=json.load(open('skills/hanria/examples/mandate.example.json'))
+          m['clauses'][1]['note']='use authorization: Bearer abc.def.ghijklmnop when reading'
+          json.dump(m,open('/tmp/credm.json','w'))"
+          out=$(python3 skills/hanria/scripts/check_action.py --mandate /tmp/credm.json \
+            --action skills/hanria/examples/action.read-ticket.json); code=$?
+          echo "$out"
+          test "$code" = "3" || { echo "a credential in the mandate must be refused, got $code"; exit 1; }
+          echo "$out" | grep -q 'Bearer abc' && { echo "the credential was echoed into the outcome"; exit 1; }
+          echo "mandate credential refused and not echoed"
+      - name: A usage error exits 3, never 2
+        run: |
+          set +e
+          out=$(python3 skills/hanria/scripts/check_action.py 2>&1); code=$?
+          test "$code" = "3" || { echo "check_action usage error must exit 3 (2 means escalate), got $code"; exit 1; }
+          echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['outcome']=='error'" \
+            || { echo "a usage error must still print an outcome object"; exit 1; }
+          out=$(python3 skills/hanria/scripts/record.py 2>&1); code=$?
+          test "$code" = "3" || { echo "record usage error must exit 3, got $code"; exit 1; }
+          echo "usage errors exit 3 with an outcome object"
+      - name: A log entry field outside the digest is refused
+        run: |
+          set +e
+          L=/tmp/unc.jsonl; rm -f $L $L.head
+          for a in read-ticket read-home; do
+            python3 skills/hanria/scripts/check_action.py \
+              --mandate skills/hanria/examples/mandate.example.json \
+              --action skills/hanria/examples/action.$a.json > /tmp/o.json
+            python3 skills/hanria/scripts/record.py append --log $L \
+              --action skills/hanria/examples/action.$a.json --outcome /tmp/o.json
+          done
+          python3 -c "
+          import json
+          e=[json.loads(l) for l in open('/tmp/unc.jsonl') if l.strip()]
+          e[0]['uncommitted_claim']='forged'
+          open('/tmp/unc.jsonl','w').write(chr(10).join(json.dumps(x,sort_keys=True,separators=(',',':')) for x in e)+chr(10))"
+          out=$(python3 skills/hanria/scripts/record.py verify --log $L); code=$?
+          echo "$out"
+          test "$code" = "1" || { echo "an uncommitted entry field must break verification, got $code"; exit 1; }
+      - name: Multi-currency tiering is accepted; the recorder validates what it records
+        run: |
+          set +e
+          python3 -c "
+          import json
+          json.dump({'schema_version':'0.2-draft','mandate_id':'fx','purpose':'p','default':'deny','clauses':[
+            {'id':'usd','effect':'permit','match':{'kind':['transaction'],'verb':['pay'],'max_amount':{'value':'100','currency':'USD'}}},
+            {'id':'eur','effect':'escalate','match':{'kind':['transaction'],'verb':['pay'],'max_amount':{'value':'200','currency':'EUR'}}}]},
+            open('/tmp/fx.json','w'))
+          json.dump({'schema_version':'0.1-draft','requested_by':{'agent':'x'},'operation':{'kind':'transaction','verb':'pay','target':'t','amount':{'value':'50','currency':'EUR'}},'justification':'t'}, open('/tmp/fx_req.json','w'))"
+          python3 skills/hanria/scripts/check_action.py --mandate /tmp/fx.json --action /tmp/fx_req.json; code=$?
+          test "$code" = "2" || { echo "multi-currency tiering must be accepted and escalate, got $code"; exit 1; }
+          echo '{"schema_version":"0.1-draft","outcome":"permit"}' > /tmp/bogus_outcome.json
+          python3 skills/hanria/scripts/record.py append --log /tmp/rv.jsonl \
+            --action skills/hanria/examples/action.read-ticket.json --outcome /tmp/bogus_outcome.json; code=$?
+          test "$code" = "3" || { echo "the recorder must validate the outcome it records, got $code"; exit 1; }
+          echo "multi-currency accepted; recorder validates its inputs"

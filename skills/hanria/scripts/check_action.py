@@ -92,11 +92,15 @@ def _outcome(outcome, reason, mandate_ref=None, clause=None, note=None):
 def _load(path, what):
     try:
         with open(path, "r", encoding="utf-8") as fh:
-            doc = json.load(fh)
+            text = fh.read()
     except FileNotFoundError:
         raise CheckError("no %s at %s" % (what, path))
-    except json.JSONDecodeError as exc:
-        raise CheckError("%s at %s is not valid JSON: %s" % (what, path, exc))
+    except OSError as exc:
+        raise CheckError("cannot read the %s at %s: %s" % (what, path, exc))
+    try:
+        doc = _schema.loads(text, "%s at %s" % (what, path))
+    except _schema.SchemaError as exc:
+        raise CheckError(str(exc))
     if not isinstance(doc, dict):
         raise CheckError("%s at %s is not a JSON object" % (what, path))
     return doc
@@ -142,8 +146,12 @@ def parse_time(text, what):
     if not isinstance(text, str) or not _schema._RFC3339.match(text):
         raise CheckError("%s must be an RFC 3339 date-time (a date, a time and "
                          "an offset), not %r" % (what, text))
+    normalised = text.replace("Z", "+00:00").replace("z", "+00:00").replace("T", "t").replace("t", "T", 1)
+    # A leap second is valid RFC 3339 and unrepresentable in datetime. One
+    # second of an expiry is immaterial; refusing a valid timestamp is not.
+    normalised = re.sub(r"(\d{2}:\d{2}):60", r"\1:59", normalised)
     try:
-        return _dt.datetime.fromisoformat(text.replace("Z", "+00:00").replace("z", "+00:00"))
+        return _dt.datetime.fromisoformat(normalised)
     except (ValueError, AttributeError):
         raise CheckError("%s is not a parseable date-time: %r" % (what, text))
 
@@ -219,6 +227,15 @@ def _check_prefixes(prefixes, what):
                 "%s contains %r, which has no path boundary: prefix matching is "
                 "literal, so it would also match a different host such as "
                 "%s.attacker.example. Add a trailing '/'." % (what, p, p))
+        if "/" in p and not p.endswith("/"):
+            # "/srv/tickets" also matches "/srv/tickets-evil". Operators read a
+            # path as a directory boundary; literal prefix matching does not.
+            # Refused for the same reason as the origin-only URL above, rather
+            # than documented and left to widen authority.
+            raise CheckError(
+                "%s contains %r, which has no boundary: prefix matching is "
+                "literal, so it would also match a sibling such as %s-other/. "
+                "End it with '/' to bound it to that directory." % (what, p, p))
 
 
 def _nonempty_str(value, what):
@@ -244,6 +261,17 @@ def _against_schema(doc, name, what):
 
 def validate_mandate(mandate):
     _against_schema(mandate, "mandate.schema.json", "mandate")
+
+    # A mandate names what may be done, never the means. A credential in a
+    # purpose or a clause note would otherwise be accepted, echoed into the
+    # outcome as `clause_note`, and persisted by anything that records it.
+    secrets = find_secrets(mandate, "mandate")
+    if secrets:
+        raise CheckError(
+            "the mandate appears to carry credential material at %s. A mandate "
+            "states what may be done, not the means of doing it, and anything "
+            "here is copied into the decision record."
+            % ", ".join(sorted(secrets)))
     for field in ("schema_version", "mandate_id", "purpose", "default", "clauses"):
         if field not in mandate:
             raise CheckError("mandate is missing required field %r" % field)
@@ -380,6 +408,12 @@ def _overlaps(earlier, later):
     # counterparty, say -- is carving out a subset, and every request in that
     # subset below the earlier ceiling is decided by the earlier permit. The
     # carve-out is dead exactly where the operator most wants it alive.
+    # Amounts in different currencies describe disjoint request sets, so two
+    # clauses bounded in different currencies never overlap.
+    if "max_amount" in e and "max_amount" in l and \
+            e["max_amount"].get("currency") != l["max_amount"].get("currency"):
+        return False
+
     if "max_amount" in e:
         scope = lambda m: {k: sorted(v) if isinstance(v, list) else v
                            for k, v in m.items() if k != "max_amount"}
@@ -565,8 +599,21 @@ def evaluate(mandate, action, now=None):
     return _outcome(mandate["default"], reason, ref)
 
 
+class _ArgParser(argparse.ArgumentParser):
+    """argparse exits 2 on a usage error, and 2 is documented as `escalate`.
+
+    A caller reading exit codes would take a mistyped command line for a human
+    approval request. Usage errors are errors: exit 3, with an outcome object,
+    like every other error path.
+    """
+
+    def error(self, message):
+        print(json.dumps(_outcome("error", "usage: %s" % message), indent=2))
+        raise SystemExit(3)
+
+
 def main():
-    ap = argparse.ArgumentParser(
+    ap = _ArgParser(
         description="Check a proposed action against a mandate. "
                     "Advisory only: this reports a decision, it cannot enforce one.")
     ap.add_argument("--mandate", required=True, help="path to a mandate JSON file")
