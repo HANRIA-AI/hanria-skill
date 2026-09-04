@@ -105,7 +105,9 @@ def action_digest(action):
 def _load(path, what):
     try:
         with open(path, "r", encoding="utf-8") as fh:
-            text = fh.read()
+            text = _schema.read_bounded(fh, "%s at %s" % (what, path))
+    except _schema.SchemaError as exc:
+        raise CheckError(str(exc))
     except FileNotFoundError:
         raise CheckError("no %s at %s" % (what, path))
     except OSError as exc:

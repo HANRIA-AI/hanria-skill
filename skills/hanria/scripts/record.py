@@ -91,11 +91,14 @@ def read_head(path):
         return None
     try:
         with open(p, "r", encoding="utf-8") as fh:
-            d = json.load(fh)
+            # Bounded and strict like every other document this layer reads;
+            # a head past the bounds is malformed, never partially trusted.
+            d = _schema.loads(_schema.read_bounded(fh, "head file at %s" % p),
+                              "head file at %s" % p)
         if not isinstance(d, dict) or "head" not in d or "count" not in d:
             return {"malformed": True}
         return d
-    except (json.JSONDecodeError, OSError):
+    except (_schema.SchemaError, OSError):
         return {"malformed": True}
 
 
@@ -104,7 +107,12 @@ def read_log(path):
         return []
     entries = []
     with open(path, "r", encoding="utf-8") as fh:
-        for i, line in enumerate(fh):
+        i = -1
+        while True:
+            i += 1
+            line = _schema.readline_bounded(fh, "line %d of %s" % (i + 1, path))
+            if line is None:
+                break
             line = line.strip()
             if not line:
                 continue
@@ -243,7 +251,8 @@ def _append(path, action_path, outcome_path):
 
     def _read(path, schema_name, what):
         with open(path, encoding="utf-8") as fh:
-            doc = _schema.loads(fh.read(), "%s at %s" % (what, path))
+            doc = _schema.loads(_schema.read_bounded(fh, "%s at %s" % (what, path)),
+                                "%s at %s" % (what, path))
         _schema.validate(doc, _schema.load(os.path.join(SCHEMA_DIR, schema_name)), what)
         return doc
 

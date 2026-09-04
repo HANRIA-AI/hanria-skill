@@ -143,12 +143,43 @@ def check_bounds(text, what="document"):
             "shape this skill evaluates." % (what, depth, MAX_NESTING_DEPTH))
 
 
+def read_bounded(fh, what="document"):
+    """Read at most the size bound plus one character from an open text file.
+
+    The bound is applied to what was read, so a file larger than the bound is
+    never materialized past it: at most MAX_DOCUMENT_BYTES + 1 characters are
+    read (up to four bytes each), and the first check then refuses it by
+    name. Use this instead of fh.read() for any document this layer reads.
+    """
+    text = fh.read(MAX_DOCUMENT_BYTES + 1)
+    check_bounds(text, what)
+    return text
+
+
+def readline_bounded(fh, what="document"):
+    """Read one line, at most the size bound plus one character of it.
+
+    Returns None at end of file. A line longer than the bound is refused by
+    name without reading the rest of it.
+    """
+    line = fh.readline(MAX_DOCUMENT_BYTES + 1)
+    if line == "":
+        return None
+    if len(line) > MAX_DOCUMENT_BYTES and not line.endswith("\n"):
+        raise SchemaError(
+            "%s is longer than %d bytes; the bound is %d bytes. Nothing that "
+            "large is a shape this skill evaluates."
+            % (what, MAX_DOCUMENT_BYTES, MAX_DOCUMENT_BYTES))
+    return line
+
+
 def loads(text, what="document"):
     """Parse JSON strictly. Anything ambiguous is refused, not resolved.
 
     Size and nesting are checked against the published bounds first, so a
-    document past either bound is refused with a named reason rather than
-    exhausting memory or the recursion limit.
+    document past either bound is refused with a named reason before the
+    parser runs. Callers that read from a file should use read_bounded so the
+    size bound also limits what is read, not only what is parsed.
     """
     check_bounds(text, what)
     try:
@@ -255,4 +286,4 @@ def validate(doc, schema, path="$", _checked=False):
 
 def load(path, what=None):
     with open(path, "r", encoding="utf-8") as fh:
-        return loads(fh.read(), what or path)
+        return loads(read_bounded(fh, what or path), what or path)
