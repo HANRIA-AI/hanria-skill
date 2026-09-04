@@ -239,7 +239,7 @@ jobs:
           for f in README.md SKILL.md skills/hanria/SKILL.md; do
             grep -qi 'cannot enforce\|does not enforce\|cannot prevent' "$f" \
               || { echo "$f does not state that the skill cannot enforce"; exit 1; }
-            grep -qi 'no HANRIA runtime exists\|not released' "$f" \
+            grep -qiE 'no (released, packaged or obtainable )?HANRIA runtime exists|not released' "$f" \
               || { echo "$f does not state the runtime is unreleased"; exit 1; }
           done
           grep -qi 'runtime client\|Request a governed action through a local HANRIA runtime' README.md \
