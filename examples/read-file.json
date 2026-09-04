@@ -1,0 +1,6 @@
+{
+  "schema_version": "0.1-draft",
+  "requested_by": { "agent": "example-agent", "session": "demo-1" },
+  "operation": { "kind": "file", "target": "/etc/hosts", "verb": "read" },
+  "justification": "Operator asked for a network diagnostic that requires reading the hosts file."
+}

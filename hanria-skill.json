@@ -1,0 +1,53 @@
+{
+  "name": "hanria",
+  "version": "0.1.0-draft",
+  "homepage": "https://hanria.ai/",
+  "summary": "Request a governed action through a local HANRIA runtime and receive a permit, denial, approval request, or receipt.",
+  "runtime_required": true,
+  "runtime_available": false,
+  "enforcement_provided_by_skill": false,
+  "critical_notice": "Installing this skill does NOT create enforcement. A skill is context and can be ignored or bypassed. Enforcement requires that protected credentials, tools, keys, or worker processes be reachable only through a runtime that can refuse. As of 2026-09-04 no HANRIA runtime exists; the detection script will report its absence.",
+  "entrypoints": {
+    "detect": {
+      "cmd": "python3 scripts/detect_runtime.py",
+      "network": false,
+      "writes": false,
+      "exit_codes": {
+        "0": "present",
+        "1": "absent",
+        "2": "error"
+      }
+    },
+    "request": {
+      "cmd": "python3 scripts/request_action.py --file <request.json>",
+      "network": false,
+      "writes": false,
+      "exit_codes": {
+        "0": "permit",
+        "1": "deny",
+        "2": "escalate",
+        "3": "error or absent"
+      }
+    }
+  },
+  "schemas": {
+    "request": "https://hanria.ai/skill/schema/action-request.schema.json",
+    "outcome": "https://hanria.ai/skill/schema/action-outcome.schema.json"
+  },
+  "agent_obligations": {
+    "on_absent": "Report unavailability to the operator and stop. Never simulate a decision or a receipt.",
+    "on_deny": "Stop. Do not attempt the operation by another path. Report the denial and its reason.",
+    "on_escalate": "Report that approval is pending. Do not proceed and do not retry in a loop.",
+    "never": [
+      "place a credential, secret, key, or token in a request",
+      "describe an action as HANRIA-governed when no runtime answered",
+      "describe HANRIA as available, released, audited, certified, or compliant"
+    ]
+  },
+  "not_claimed": [
+    "trademark registration or completed clearance in the name HANRIA",
+    "third-party security audit, certification, or regulatory approval",
+    "published receipt format, public verifier, or interoperability standard",
+    "custody of funds, digital assets, or keys"
+  ]
+}

@@ -1,0 +1,41 @@
+name: checks
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Schemas and manifest are valid JSON
+        run: |
+          for f in schema/*.json hanria-skill.json examples/*.json; do
+            python3 -c "import json,sys;json.load(open('$f'));print('ok $f')"
+          done
+      - name: Detection reports absent, and exits 1
+        run: |
+          set +e
+          out=$(python3 scripts/detect_runtime.py); code=$?
+          echo "$out"
+          test "$code" = "1" || { echo "expected exit 1 (absent), got $code"; exit 1; }
+          echo "$out" | grep -q '"status": "absent"' || { echo "expected status absent"; exit 1; }
+      - name: A request carrying a credential is refused locally, never sent
+        run: |
+          set +e
+          out=$(python3 scripts/request_action.py --file examples/rejected-secret.json); code=$?
+          echo "$out"
+          test "$code" = "3" || { echo "expected exit 3, got $code"; exit 1; }
+          echo "$out" | grep -q 'NOT sent' || { echo "expected local refusal"; exit 1; }
+          echo "$out" | grep -q 'operation.parameters.api_key' || { echo "expected offending path named"; exit 1; }
+      - name: A clean request with no runtime does NOT fabricate an outcome
+        run: |
+          set +e
+          out=$(python3 scripts/request_action.py --file examples/read-file.json); code=$?
+          echo "$out"
+          test "$code" = "3" || { echo "expected exit 3, got $code"; exit 1; }
+          echo "$out" | grep -q 'no HANRIA runtime is installed' || exit 1
+          echo "$out" | grep -qv '"outcome": "permit"' || { echo "must never synthesize permit"; exit 1; }
+      - name: No credential-shaped literals committed
+        run: |
+          ! grep -rIn --exclude-dir=.git -E 'sk-live-[A-Za-z0-9]{12,}|BEGIN (RSA|EC|OPENSSH) PRIVATE KEY' . \
+            || { echo "possible secret committed"; exit 1; }

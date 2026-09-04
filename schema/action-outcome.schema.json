@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hanria.ai/skill/schema/action-outcome.schema.json",
+  "title": "HANRIA action outcome",
+  "type": "object",
+  "required": ["schema_version", "outcome"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "const": "0.1-draft" },
+    "outcome": { "enum": ["permit", "deny", "escalate", "error"] },
+    "reason": { "type": "string", "description": "Why. Present on deny, escalate and error." },
+    "receipt_ref": { "type": "string", "description": "Reference to a structured record. Present on permit. NOT a proof of anything absent a published format and verifier — none is published." },
+    "approval_ref": { "type": "string", "description": "Reference to a pending human decision. Present on escalate." },
+    "mandate_ref": { "type": "string" }
+  },
+  "$comment": "A receipt_ref is a pointer to a local record. No receipt format, public verifier, or third-party acceptance has been published. Do not present a receipt_ref as independent verification."
+}

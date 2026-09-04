@@ -1,0 +1,14 @@
+{
+  "schema_version": "0.1-draft",
+  "requested_by": { "agent": "example-agent", "on_behalf_of": "operator-1" },
+  "operation": {
+    "kind": "transaction",
+    "target": "vendor-invoice-4471",
+    "verb": "pay",
+    "amount": { "value": "1250.00", "currency": "USD" },
+    "counterparty": "vendor-4471"
+  },
+  "justification": "Invoice matches an approved purchase order within the vendor and amount limits of the standing mandate.",
+  "mandate_ref": "mandate/procurement-2026-q3",
+  "idempotency_key": "invoice-4471-attempt-1"
+}
