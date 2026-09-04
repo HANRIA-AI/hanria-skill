@@ -89,4 +89,5 @@ interoperability standard has been published. HANRIA would not hold funds or dig
 not a financial service. Nothing here prevents, detects, reverses, or indemnifies unauthorized or
 fraudulent activity.
 
-More: https://hanria.ai/ · https://hanria.ai/llms.txt
+More: https://hanria.dev/ (install and schemas) · https://hanria.ai/ (concept) · https://hanria.ai/llms.txt
+Also in 日本語 https://hanria.ai/ja/ · 中文 https://hanria.ai/zh/ · 한국어 https://hanria.ai/ko/

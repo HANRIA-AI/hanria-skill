@@ -107,7 +107,12 @@ A proposed local runtime that would sit between an agent and a protected operati
    credential.
 5. **Record** — a structured record links proposal, inputs, decision, operation, and outcome.
 
-More: **https://hanria.ai/** · [llms.txt](https://hanria.ai/llms.txt) · [agent card](https://hanria.ai/.well-known/hanria.json)
+## Links
+
+- **[hanria.dev](https://hanria.dev/)** — developer surface: install, schemas, outcome obligations
+- **[hanria.ai](https://hanria.ai/)** — the concept, boundaries and FAQ
+  · [日本語](https://hanria.ai/ja/) · [中文](https://hanria.ai/zh/) · [한국어](https://hanria.ai/ko/)
+- [llms.txt](https://hanria.ai/llms.txt) · [llms-full.txt](https://hanria.ai/llms-full.txt) · [agent card](https://hanria.ai/.well-known/hanria.json)
 
 ## Boundaries
 
