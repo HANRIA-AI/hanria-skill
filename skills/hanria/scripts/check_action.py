@@ -468,8 +468,15 @@ def _overlaps(earlier, later):
 
     if "target_prefix" in e and "target_prefix" in l:
         # Two prefixes can both apply only if one extends the other.
-        if not any(_nfc(lp).startswith(_nfc(ep)) or _nfc(ep).startswith(_nfc(lp))
-                   for ep in e["target_prefix"] for lp in l["target_prefix"]):
+        # A target is matched by a permission as written and by a restriction
+        # in either spelling, so a prefix's decoded spelling is part of what it
+        # can reach: a permit of "/data/s%C3%A9crets/" above a deny of
+        # "/data/sécrets/" shadows that deny for every encoded target.
+        def spellings(prefix):
+            return {_nfc(prefix), _nfc(_decode_stable(prefix))}
+        if not any(b.startswith(a) or a.startswith(b)
+                   for ep in e["target_prefix"] for lp in l["target_prefix"]
+                   for a in spellings(ep) for b in spellings(lp)):
             return False
 
     if "counterparty" in e and "counterparty" in l:

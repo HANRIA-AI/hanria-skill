@@ -655,6 +655,22 @@ jobs:
           a=json.load(open('/tmp/query-a.json')); a['operation']['kind']='network'; a['operation']['verb']='post'; json.dump(a,open('/tmp/query-a.json','w'))
           PY
           run query; test "$code" = "0" && echo "$out" | grep -q '"clause": "api"' || { echo "a permitted URL with a percent-escaped query string must not be refused for the escape"; echo "$out"; exit 1; }
+          # An encoded permit above a plain deny shadows that deny for every encoded target:
+          # refused at mandate validation (exit 3). Deny-first is accepted and denies.
+          python3 - <<'PY'
+          import json, copy
+          M=json.load(open('skills/hanria/examples/mandate.example.json'))
+          A=json.load(open('skills/hanria/examples/action.read-ticket.json'))
+          enc={"id":"permit-enc","effect":"permit","match":{"kind":["file"],"verb":["read"],"target_prefix":["/data/s%C3%A9crets/"]}}
+          den={"id":"deny-plain","effect":"deny","match":{"kind":["file"],"target_prefix":["/data/s\u00e9crets/"]}}
+          for name, clauses in (('shadow', [enc, den]), ('denyfirst', [den, enc])):
+              m=copy.deepcopy(M); m['clauses']=clauses; json.dump(m, open('/tmp/%s-m.json'%name,'w'))
+          a=copy.deepcopy(A); a['operation']['target']='/data/s%C3%A9crets/x.txt'; json.dump(a, open('/tmp/shadow-a.json','w'))
+          PY
+          out=$(python3 $S/check_action.py --mandate /tmp/shadow-m.json --action /tmp/shadow-a.json); code=$?
+          test "$code" = "3" && echo "$out" | grep -q 'unreachable' || { echo "an encoded permit above a plain deny must be refused as a shadowed denial"; echo "$out"; exit 1; }
+          out=$(python3 $S/check_action.py --mandate /tmp/denyfirst-m.json --action /tmp/shadow-a.json); code=$?
+          test "$code" = "1" && echo "$out" | grep -q '"clause": "deny-plain"' || { echo "deny-first must be accepted and must deny the encoded target"; echo "$out"; exit 1; }
           echo "denials and escalations match any spelling; permissions only the spelling as written"
       - name: Document size and nesting are validated bounds, refused by name
         run: |

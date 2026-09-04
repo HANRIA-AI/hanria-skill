@@ -35,7 +35,7 @@ this skill gives you enforcement, that claim is false.**
   without a trailing `/` are refused because their literal reading widens authority, but that
   addresses the shapes we know about, not the general problem.
 
-- **Prefixes and targets are compared after canonical composition (NFC), and nothing more.** Until
+- **Prefixes and targets are compared after canonical composition (NFC); compatibility forms are not folded.** Until
   this revision they were compared literally, and the entry here claimed that failed safe. It did not: a deny prefix written in one normalization form failed to match a target written
   in the other, and first-match-wins fell through to a broader permit beneath it. Both sides are now
   composed before comparison, so that pair matches. Compatibility forms are not folded: a fullwidth
