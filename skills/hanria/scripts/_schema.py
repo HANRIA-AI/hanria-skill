@@ -91,8 +91,66 @@ def _no_duplicates(pairs):
     return seen
 
 
+# Validated bounds on any document this layer reads. Both are refused with a
+# named reason before parsing, so exceeding them is a decision, not a crash.
+# A mandate, a request or a log entry that needs more than this is not a
+# shape this skill was written for.
+MAX_DOCUMENT_BYTES = 1024 * 1024
+MAX_NESTING_DEPTH = 64
+
+
+def nesting_depth(text):
+    """Deepest bracket nesting in `text`, ignoring brackets inside strings.
+
+    Scans the raw characters so the bound is checked before json.loads
+    recurses. Malformed input is not diagnosed here; it is left to the parser,
+    which reports it as invalid JSON.
+    """
+    depth = 0
+    deepest = 0
+    in_string = False
+    escaped = False
+    for ch in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+        elif ch == '"':
+            in_string = True
+        elif ch in "[{":
+            depth += 1
+            if depth > deepest:
+                deepest = depth
+        elif ch in "]}":
+            depth -= 1
+    return deepest
+
+
+def check_bounds(text, what="document"):
+    """Refuse a document that exceeds the published size or nesting bound."""
+    size = len(text.encode("utf-8")) if isinstance(text, str) else len(text)
+    if size > MAX_DOCUMENT_BYTES:
+        raise SchemaError(
+            "%s is %d bytes; the bound is %d bytes. Nothing that large is a "
+            "shape this skill evaluates." % (what, size, MAX_DOCUMENT_BYTES))
+    depth = nesting_depth(text)
+    if depth > MAX_NESTING_DEPTH:
+        raise SchemaError(
+            "%s nests %d levels deep; the bound is %d. Nothing that deep is a "
+            "shape this skill evaluates." % (what, depth, MAX_NESTING_DEPTH))
+
+
 def loads(text, what="document"):
-    """Parse JSON strictly. Anything ambiguous is refused, not resolved."""
+    """Parse JSON strictly. Anything ambiguous is refused, not resolved.
+
+    Size and nesting are checked against the published bounds first, so a
+    document past either bound is refused with a named reason rather than
+    exhausting memory or the recursion limit.
+    """
+    check_bounds(text, what)
     try:
         return json.loads(text, parse_constant=_no_constants,
                           object_pairs_hook=_no_duplicates)
@@ -100,6 +158,9 @@ def loads(text, what="document"):
         raise
     except json.JSONDecodeError as exc:
         raise SchemaError("%s is not valid JSON: %s" % (what, exc))
+    except RecursionError:
+        raise SchemaError("%s is nested beyond what the parser can handle; the "
+                          "published bound is %d levels" % (what, MAX_NESTING_DEPTH))
 
 
 def _type_ok(value, expected):

@@ -81,8 +81,11 @@ this skill gives you enforcement, that claim is false.**
 
 ## Robustness
 
-- Very deeply nested JSON exhausts the recursion limit and produces `error` (exit 3). That is
-  fail-closed, but it is a resource limit rather than a validated bound.
+- **Document size and nesting depth are validated bounds, not resource limits.** Any document this
+  layer reads — a mandate, a request, or a log line — is refused by name with `error` (exit 3) if it
+  exceeds 1,048,576 bytes or nests more than 64 levels, before it is parsed. Both numbers are
+  published in `_schema.py`. They bound what the skill will read; they do not make any judgment
+  about what a document that size means.
 - **The unreachable-clause check compares clauses pairwise.** It catches an earlier clause that
   decides requests a later restricting clause was written to cover. It does not reason about three or
   more clauses combining to make a fourth unreachable, and it compares conditions structurally rather
@@ -91,7 +94,6 @@ this skill gives you enforcement, that claim is false.**
   consumer might decode — a different escaping scheme, an overlong UTF-8 form, a URL that redirects —
   are not recognized. The target is compared as written after percent-decoding, and nothing
   canonicalizes it further.
-- There is no bound on document size. A large enough mandate or request will consume memory.
 - `_schema.py` implements the JSON Schema subset these schemas use and refuses any keyword, or
   `format` value, that it does not implement — checked across the whole schema, not only the branches
   a document happens to reach. It is not a general-purpose JSON Schema validator and should not be

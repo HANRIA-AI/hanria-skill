@@ -597,6 +597,33 @@ jobs:
           test "$code" = "3" || { echo "a credential in the mandate must be refused, got $code"; exit 1; }
           echo "$out" | grep -q 'Bearer abc' && { echo "the credential was echoed into the outcome"; exit 1; }
           echo "mandate credential refused and not echoed"
+      - name: Document size and nesting are validated bounds, refused by name
+        run: |
+          set +e
+          S=skills/hanria/scripts; M=skills/hanria/examples/mandate.example.json
+          A=skills/hanria/examples/action.read-ticket.json
+          python3 -c "import json; d=json.load(open('$M')); d['purpose']=d.get('purpose','')+'x'*(1024*1024); open('/tmp/big.json','w').write(json.dumps(d))"
+          out=$(python3 $S/check_action.py --mandate /tmp/big.json --action $A); code=$?
+          test "$code" = "3" || { echo "oversized mandate must exit 3, got $code"; exit 1; }
+          echo "$out" | grep -q 'the bound is 1048576 bytes' || { echo "oversized mandate must be refused by the size bound, by name"; echo "$out"; exit 1; }
+          python3 -c "open('/tmp/deep.json','w').write('['*65 + ']'*65)"
+          out=$(python3 $S/check_action.py --mandate $M --action /tmp/deep.json); code=$?
+          test "$code" = "3" || { echo "65-deep request must exit 3, got $code"; exit 1; }
+          echo "$out" | grep -q 'the bound is 64' || { echo "deep request must be refused by the nesting bound, by name"; echo "$out"; exit 1; }
+          python3 -c "open('/tmp/deep64.json','w').write('['*64 + ']'*64)"
+          out=$(python3 $S/check_action.py --mandate $M --action /tmp/deep64.json); code=$?
+          echo "$out" | grep -q 'the bound is 64' && { echo "64 deep is within the bound and must not be refused by it"; exit 1; }
+          test "$code" = "3" || { echo "64-deep non-object request must still error on shape, got $code"; exit 1; }
+          python3 - <<'PY'
+          import sys; sys.path.insert(0, 'skills/hanria/scripts'); import _schema
+          assert _schema.nesting_depth('{"a": "[[[[[", "b": [1]}') == 2, 'brackets inside strings must not count'
+          assert _schema.nesting_depth('{"a": "\\"[", "b": {"c": {}}}') == 3, 'escaped quotes must not end the string'
+          print('nesting_depth ignores string contents')
+          PY
+          python3 -c "open('/tmp/deep.log','w').write('['*65+']'*65+'\n')"; rm -f /tmp/deep.log.head
+          out=$(python3 $S/record.py verify --log /tmp/deep.log 2>&1); code=$?
+          test "$code" = "3" || { echo "a too-deep log line must be an error (3), got $code"; echo "$out"; exit 1; }
+          echo "size and nesting bounds are validated and named"
       - name: A usage error exits 3, never 2
         run: |
           set +e
