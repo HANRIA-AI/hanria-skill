@@ -785,5 +785,17 @@ jobs:
                   assert data.get(key), '%s frontmatter has no %r' % (f, key)
               assert isinstance(data['description'], str), \
                   '%s description parsed as %s, not a string' % (f, type(data['description']).__name__)
-              print('%s: name=%s, description %d chars' % (f, data['name'], len(data['description'])))
+              # Registries commonly extract the description with a plain regex
+              # rather than a YAML parser. A folded scalar is valid YAML and
+              # shows up in those listings as a literal ">-", so the two must
+              # agree: keep the description a single-line plain scalar.
+              naive = re.search(r'^description:\s*(.+)$', m.group(1), re.M)
+              assert naive, '%s description is not on one line a naive parser can read' % f
+              assert naive.group(1).strip() == data['description'], (
+                  '%s: a naive "description:" extractor reads %r, the YAML parser reads %r'
+                  % (f, naive.group(1)[:40], data['description'][:40]))
+              assert ': ' not in data['description'], \
+                  '%s description contains ": ", which YAML reads as a nested mapping' % f
+              print('%s: name=%s, description %d chars, both parsers agree'
+                    % (f, data['name'], len(data['description'])))
           PY

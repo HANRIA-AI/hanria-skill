@@ -1,11 +1,6 @@
 ---
 name: hanria
-description: >-
-  Check a proposed agent action against an operator-authored mandate, and keep a hash-chained
-  record of the decision. Use when an operator has written down what an agent may do and wants
-  consequential actions checked against it before they happen and recorded afterward. Works
-  locally with no network and no runtime. IMPORTANT - this skill is advisory; it evaluates and
-  records, and cannot prevent an action.
+description: Check a proposed agent action against an operator-authored mandate and keep a hash-chained record of the decision. Use when an operator has written down what an agent may do and wants consequential actions checked against it before they happen and recorded afterward. Works locally with no network and no runtime. IMPORTANT - this skill is advisory; it evaluates and records, and cannot prevent an action.
 homepage: https://hanria.ai/
 license: MIT
 ---
