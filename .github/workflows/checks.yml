@@ -764,3 +764,26 @@ jobs:
           _schema.validate("2026-02-28T00:00:00Z", {"type": "string", "format": "date-time"})
           print('validator refuses unimplemented keywords, formats and impossible dates')
           PY
+      - name: SKILL.md frontmatter is valid YAML and the skill is installable
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 - <<'PY'
+          import re, yaml
+          # The installer parses this frontmatter. A description containing ": "
+          # made YAML read a nested mapping, the file was skipped, and the
+          # documented install command silently installed nothing.
+          for f in ('SKILL.md', 'skills/hanria/SKILL.md'):
+              text = open(f).read()
+              m = re.match(r'^---\n(.*?)\n---\n', text, re.S)
+              assert m, '%s has no YAML frontmatter' % f
+              try:
+                  data = yaml.safe_load(m.group(1))
+              except yaml.YAMLError as exc:
+                  raise AssertionError('%s frontmatter is not valid YAML: %s' % (f, exc))
+              assert isinstance(data, dict), '%s frontmatter is not a mapping' % f
+              for key in ('name', 'description'):
+                  assert data.get(key), '%s frontmatter has no %r' % (f, key)
+              assert isinstance(data['description'], str), \
+                  '%s description parsed as %s, not a string' % (f, type(data['description']).__name__)
+              print('%s: name=%s, description %d chars' % (f, data['name'], len(data['description'])))
+          PY
