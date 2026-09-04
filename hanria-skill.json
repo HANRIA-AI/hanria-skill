@@ -6,7 +6,7 @@
   "runtime_required": false,
   "runtime_available": false,
   "enforcement_provided_by_skill": false,
-  "critical_notice": "This skill checks and records; it CANNOT enforce. A skill is context and can be ignored or bypassed, so an agent that ignores a deny still performs the operation. Enforcement requires that protected credentials, tools, keys or worker processes be reachable only through a component that can refuse. As of 2026-09-04 no HANRIA runtime exists.",
+  "critical_notice": "This skill checks and records; it CANNOT enforce. A skill is context and can be ignored or bypassed, so an agent that ignores a deny still performs the operation. Enforcement requires that protected credentials, tools, keys or worker processes be reachable only through a component that can refuse. As of 2026-09-04 no released, packaged or obtainable HANRIA runtime exists.",
   "entrypoints": {
     "check": {
       "cmd": "python3 scripts/check_action.py --mandate <mandate.json> --action <request.json>",
@@ -48,7 +48,7 @@
         "1": "absent",
         "2": "error"
       },
-      "note": "Expected to report absent. Not required for checking or recording."
+      "note": "Expected to report absent: no released, packaged or obtainable runtime exists. Not required for checking or recording."
     }
   },
   "schemas": {

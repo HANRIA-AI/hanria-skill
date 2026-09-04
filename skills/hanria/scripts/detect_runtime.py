@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Detect whether a local HANRIA runtime is present.
 
-Read-only. Makes no network calls. Prints one JSON object and exits.
+Read-only. Makes no external network calls; it probes local Unix domain sockets
+and sends no application data. Prints one JSON object and exits.
 
 Exit codes:  0 present   1 absent   2 error
 """

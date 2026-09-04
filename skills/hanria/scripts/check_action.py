@@ -23,9 +23,15 @@ compare --- produces `deny` or `error`, never `permit`.
 import argparse
 import datetime as _dt
 import json
+import os
 import re
 import sys
 from decimal import Decimal, InvalidOperation
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _schema  # noqa: E402
+
+SCHEMA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schema")
 
 SCHEMA_VERSION = "0.2-draft"          # mandate
 REQUEST_SCHEMA_VERSION = "0.1-draft"  # action request
@@ -127,10 +133,19 @@ def find_secrets(node, path="action"):
 
 
 def parse_time(text, what):
+    """Parse an RFC 3339 date-time.
+
+    `fromisoformat` alone is too permissive: it accepts a date with no time,
+    so "2999-01-01" would parse and silently become midnight -- an expiry the
+    operator did not write. The shape is checked first.
+    """
+    if not isinstance(text, str) or not _schema._RFC3339.match(text):
+        raise CheckError("%s must be an RFC 3339 date-time (a date, a time and "
+                         "an offset), not %r" % (what, text))
     try:
-        return _dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        return _dt.datetime.fromisoformat(text.replace("Z", "+00:00").replace("z", "+00:00"))
     except (ValueError, AttributeError):
-        raise CheckError("%s is not an RFC 3339 timestamp: %r" % (what, text))
+        raise CheckError("%s is not a parseable date-time: %r" % (what, text))
 
 
 def to_decimal(value, what):
@@ -178,7 +193,32 @@ def _str_list(value, what):
     for v in value:
         if not isinstance(v, str):
             raise CheckError("%s must contain only strings; found %r" % (what, v))
+        if not v:
+            # Every string starts with "", so an empty prefix silently matches
+            # every target -- a clause meant to scope something to nothing.
+            raise CheckError("%s contains an empty string, which matches every "
+                             "target. Remove the condition if you meant no "
+                             "restriction; state a prefix if you meant one."
+                             % what)
     return value
+
+
+_ORIGIN_ONLY = re.compile(r"^[a-z][a-z0-9+.-]*://[^/]+$", re.I)
+
+
+def _check_prefixes(prefixes, what):
+    """Refuse a prefix whose boundary is ambiguous in the dangerous direction.
+
+    Prefix matching is literal, so "https://trusted.example" also matches
+    "https://trusted.example.evil.test/steal" -- the attacker controls what
+    follows the host. A trailing "/" makes the host boundary explicit.
+    """
+    for p in prefixes:
+        if _ORIGIN_ONLY.match(p):
+            raise CheckError(
+                "%s contains %r, which has no path boundary: prefix matching is "
+                "literal, so it would also match a different host such as "
+                "%s.attacker.example. Add a trailing '/'." % (what, p, p))
 
 
 def _nonempty_str(value, what):
@@ -187,7 +227,23 @@ def _nonempty_str(value, what):
     return value
 
 
+def _against_schema(doc, name, what):
+    """Validate against the published schema, so "not the shape it claims to be"
+    means the schema, not a hand-written subset of it."""
+    path = os.path.join(SCHEMA_DIR, name)
+    try:
+        schema = _schema.load(path)
+    except (OSError, ValueError) as exc:
+        raise CheckError("cannot read the %s schema at %s: %s" % (what, path, exc))
+    try:
+        _schema.validate(doc, schema, what)
+    except _schema.SchemaError as exc:
+        raise CheckError("the %s does not conform to its published schema: %s"
+                         % (what, exc))
+
+
 def validate_mandate(mandate):
+    _against_schema(mandate, "mandate.schema.json", "mandate")
     for field in ("schema_version", "mandate_id", "purpose", "default", "clauses"):
         if field not in mandate:
             raise CheckError("mandate is missing required field %r" % field)
@@ -258,6 +314,9 @@ def validate_mandate(mandate):
         for key in ("verb", "target_prefix", "counterparty"):
             if key in m:
                 _str_list(m[key], "clause %r match.%s" % (clause["id"], key))
+        if "target_prefix" in m:
+            _check_prefixes(m["target_prefix"],
+                            "clause %r match.target_prefix" % clause["id"])
         if "max_amount" in m:
             ceiling = m["max_amount"]
             if not isinstance(ceiling, dict):
@@ -314,16 +373,21 @@ def _overlaps(earlier, later):
 
     # A bounded earlier clause leaves everything above its ceiling to the
     # clauses after it, which is how a tiered policy is written: permit small
-    # refunds, escalate larger ones, deny the rest. The later clause is reached
-    # for exactly the amounts the earlier one declines, so it is not dead.
+    # refunds, escalate larger ones, deny the rest.
+    #
+    # That only holds when the two clauses cover the SAME scope and differ
+    # solely in the ceiling. A later clause that also narrows -- adding a
+    # counterparty, say -- is carving out a subset, and every request in that
+    # subset below the earlier ceiling is decided by the earlier permit. The
+    # carve-out is dead exactly where the operator most wants it alive.
     if "max_amount" in e:
-        if "max_amount" not in l:
-            return False
-        ec, lc = e["max_amount"], l["max_amount"]
-        if ec["currency"] != lc["currency"]:
-            return False
-        if to_decimal(lc["value"], "ceiling") > to_decimal(ec["value"], "ceiling"):
-            return False
+        scope = lambda m: {k: sorted(v) if isinstance(v, list) else v
+                           for k, v in m.items() if k != "max_amount"}
+        if "max_amount" in l and scope(e) == scope(l):
+            ec, lc = e["max_amount"], l["max_amount"]
+            if ec["currency"] == lc["currency"] and \
+                    to_decimal(lc["value"], "ceiling") > to_decimal(ec["value"], "ceiling"):
+                return False
 
     return True
 
@@ -393,6 +457,12 @@ def clause_matches(clause, op):
 def evaluate(mandate, action, now=None):
     validate_mandate(mandate)
     ref = mandate["mandate_id"]
+    try:
+        _against_schema(action, "action-request.schema.json", "request")
+    except CheckError as exc:
+        # A request that is not the shape it claims to be is denied, not
+        # errored: the mandate is sound, the request is not.
+        return _outcome("deny", str(exc), ref)
     now = now or _dt.datetime.now(_dt.timezone.utc)
 
     if "not_valid_after" in mandate:

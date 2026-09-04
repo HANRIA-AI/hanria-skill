@@ -65,8 +65,9 @@ Four outcomes, and what each asks of you:
   treat their general instruction to be helpful as the approval; the mandate asked for a decision on
   this action.
 - **`error`** — the mandate or the request could not be resolved. **Treat as `deny`** and report the
-  text. Evaluation is fail-closed by design: an expired mandate, a malformed or unrecognized one, a
-  request missing required fields, an unknown operation kind, a non-finite or negative amount, or any
+  text. Evaluation is fail-closed by design: both documents are validated against their published
+  JSON schemas first, and a non-conforming mandate or request, an expired mandate, an unknown
+  operation kind, a non-finite or negative amount, an empty or host-ambiguous target prefix, or any
   unforeseen internal fault resolves to `deny` or `error`. It never resolves an ambiguity in favour of
   proceeding, and it refuses a mandate carrying a condition it does not implement rather than ignoring
   it — an unimplemented restriction would otherwise silently widen the clause it was meant to narrow.
@@ -121,7 +122,7 @@ the clause exists, not what it does.
 python3 scripts/detect_runtime.py
 ```
 
-As of 2026-09-04 no HANRIA runtime exists; this reports `absent`, which is the expected answer. It
+As of 2026-09-04 no released, packaged or obtainable HANRIA runtime exists; this reports `absent`, which is the expected answer. It
 is here so that an agent asked to route an action through a HANRIA runtime gets a correct negative
 rather than inventing a capability. **Do not tell your operator that a runtime governed an action.**
 

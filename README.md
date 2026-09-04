@@ -17,9 +17,10 @@ of the decision.** Free, MIT, Python 3 standard library only. Runs locally with 
 > bypassed. **If any artifact tells you that installing this skill gives you enforcement, that claim
 > is false.**
 >
-> The HANRIA enforcement runtime is in development and **not released** — no package, no download,
-> no endpoint. `scripts/detect_runtime.py` reports `absent`, which is the expected and honest answer.
-> Checking and recording do not need it.
+> The HANRIA enforcement runtime is in development and **not released** — no released, packaged or
+> obtainable runtime exists: no package, no download, no endpoint.
+> `scripts/detect_runtime.py` reports `absent`, which is the expected and honest answer. Checking and
+> recording do not need it.
 
 ## Install
 
@@ -63,10 +64,15 @@ A mandate states a purpose in your own words, then clauses. Clauses are evaluate
 first match decides; anything unmatched takes the `default`, which is `deny` or `escalate` — never
 `permit`, because a mandate that permits by default cannot express a limit.
 
-**Only the structured `match` conditions are evaluated.** `purpose`, `justification` and a clause's
-`note` are for the human who reviews this later. Writing "never touch payroll" in `purpose` restricts
-nothing; it has to be a clause. This is the easiest way to believe you have written a limit that does
-not exist.
+**Prose expresses no authorization condition.** Clause matching uses only the structured conditions
+in a clause's `match`. `purpose`, a request's `justification` and a clause's `note` are for the human
+who reviews this later — writing "never touch payroll" in `purpose` restricts nothing, it has to be a
+clause, and that is the easiest way to believe you have written a limit that does not exist.
+
+Other structured fields do restrict: `not_valid_after` denies everything once it passes,
+`requires_human` turns a permitting clause into an escalation, and the `default` decides anything
+unmatched. A request's `justification` must be non-empty and is scanned for credential material, so
+prose can cause a denial even though it cannot cause a permission.
 
 Three things worth doing:
 
@@ -84,9 +90,11 @@ A bounded clause leaves everything above its ceiling to the clauses after it.
 
 ## What it guarantees, and what it does not
 
-**Fail-closed.** An expired mandate, a malformed or unrecognized one, a request that is not the shape
-it claims to be, an unknown operation kind, a non-finite or negative amount, or any unforeseen
-internal fault resolves to `deny` or `error`. A mandate carrying a condition the evaluator does not
+**Fail-closed.** The mandate and the request are validated against their published JSON schemas
+before evaluation, so "not the shape it claims to be" means the schema rather than a hand-written
+subset of it. An expired mandate, a non-conforming mandate or request, an unknown operation kind, a
+non-finite or negative amount, an empty or host-ambiguous target prefix, or any unforeseen internal
+fault resolves to `deny` or `error`. A mandate carrying a condition the evaluator does not
 implement is refused rather than ignored — an unimplemented restriction would otherwise silently
 widen the clause it was meant to narrow.
 
@@ -97,7 +105,10 @@ pass. It guards against accident, not intent.
 
 **Prefix matching is literal.** It does not resolve symlinks or normalize paths, so it constrains the
 string, not the file the string ends up pointing at. Targets containing a parent-directory segment
-are refused outright, but a symlink under a permitted prefix is not something this can see.
+are refused, an empty prefix is refused (it would match everything), and a URL prefix with no path
+boundary is refused (`https://trusted.example` would also match `https://trusted.example.evil.test`).
+A symlink under a permitted prefix is still not something this can see, and a filesystem prefix
+without a trailing `/` will match a sibling — write `/srv/tickets/`, not `/srv/tickets`.
 
 **The log detects alteration**, and deletion of any entry followed by another. It cannot detect
 truncation on its own — a shortened chain has nothing left to disagree with — so `append` maintains a
@@ -108,8 +119,10 @@ retained head was available. Someone who can rewrite both files can still produc
 can write the file can rebuild it. It is a local integrity check, not an attestation, and not proof
 to anyone else that an action was authorized.
 
-Each of these is asserted in [`.github/workflows/checks.yml`](.github/workflows/checks.yml), which
-runs on every push, rather than only documented here.
+Each of these has a corresponding test in
+[`.github/workflows/checks.yml`](.github/workflows/checks.yml), which runs on every push. That is a
+test suite, not a proof: it covers the cases written down in it, and a property is only as well
+established as its test.
 
 ## Layout
 

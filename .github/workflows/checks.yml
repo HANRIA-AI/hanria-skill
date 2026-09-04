@@ -370,3 +370,154 @@ jobs:
           assert 'request' not in d['entrypoints'], 'the removed runtime client must not be advertised'
           print('availability prohibitions correctly scoped')
           PY
+      - name: Every document is validated against its published schema
+        run: |
+          python3 - <<'PY'
+          import glob, json, sys
+          sys.path.insert(0, 'skills/hanria/scripts')
+          import _schema
+          # The validator must refuse any keyword it does not implement, so a
+          # schema cannot grow a constraint that is silently ignored.
+          for f in glob.glob('skills/hanria/schema/*.json'):
+              def walk(sch, path='$'):
+                  un = set(sch) - _schema.SUPPORTED
+                  assert not un, '%s uses unimplemented keyword(s) %s at %s' % (f, sorted(un), path)
+                  for k, v in sch.get('properties', {}).items():
+                      walk(v, '%s.%s' % (path, k))
+                  if 'items' in sch:
+                      walk(sch['items'], path + '[]')
+              walk(_schema.load(f))
+          m = _schema.load('skills/hanria/schema/mandate.schema.json')
+          a = _schema.load('skills/hanria/schema/action-request.schema.json')
+          for f in sorted(glob.glob('skills/hanria/examples/*.json')):
+              _schema.validate(json.load(open(f)), m if 'mandate' in f else a, f)
+          print('schemas self-consistent; every shipped example conforms')
+          PY
+      - name: Emitted outcomes conform to the published outcome schema
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, sys
+          sys.path.insert(0, 'skills/hanria/scripts')
+          import _schema
+          sch = _schema.load('skills/hanria/schema/action-outcome.schema.json')
+          M = 'skills/hanria/examples/mandate.example.json'
+          cases = [(M, 'skills/hanria/examples/action.%s.json' % a)
+                   for a in ('read-ticket', 'read-home', 'refund', 'refund-too-large', 'traversal')]
+          cases.append(('skills/hanria/examples/mandate.shadowed-denial.json',
+                        'skills/hanria/examples/action.read-ticket.json'))
+          for m, a in cases:
+              r = subprocess.run(['python3', 'skills/hanria/scripts/check_action.py',
+                                  '--mandate', m, '--action', a], capture_output=True, text=True)
+              _schema.validate(json.loads(r.stdout), sch, 'outcome from %s' % a)
+          print('every emitted outcome conforms to its published schema')
+          PY
+      - name: Nested schema violations and non-RFC-3339 expiries never permit
+        run: |
+          python3 - <<'PY'
+          import json, subprocess
+          M = 'skills/hanria/examples/mandate.example.json'
+          A = 'skills/hanria/examples/action.read-ticket.json'
+          ba, bm = json.load(open(A)), json.load(open(M))
+          def cp(d):
+              return json.loads(json.dumps(d))
+          cases = []
+          d = cp(ba); d['requested_by']['bogus'] = 'x';           cases.append(('unknown requested_by prop', 'a', d))
+          d = cp(ba); d['requested_by']['session'] = 12345;       cases.append(('numeric session', 'a', d))
+          d = cp(ba); d['operation']['parameters'] = 'nope';      cases.append(('string parameters', 'a', d))
+          d = cp(ba); d['mandate_ref'] = 7;                       cases.append(('numeric mandate_ref', 'a', d))
+          d = cp(ba); d['idempotency_key'] = 7;                   cases.append(('numeric idempotency_key', 'a', d))
+          d = cp(bm); d['not_valid_after'] = '2999-01-01';        cases.append(('date-only expiry', 'm', d))
+          d = cp(bm); d['clauses'][3]['match']['max_amount']['per_day'] = True
+          cases.append(('unknown nested max_amount cond', 'm', d))
+          d = cp(bm); d['clauses'][3]['match']['max_amount']['value'] = 50
+          cases.append(('numeric mandate ceiling', 'm', d))
+          d = cp(bm); d['clauses'][1]['match']['target_prefix'] = ['']
+          cases.append(('empty target prefix', 'm', d))
+          d = cp(bm); d['clauses'][2]['match']['target_prefix'] = ['https://trusted.example']
+          cases.append(('origin-only URL prefix', 'm', d))
+          bad = []
+          for name, which, doc in cases:
+              if which == 'a':
+                  json.dump(doc, open('/tmp/n_a.json', 'w')); args = ['--mandate', M, '--action', '/tmp/n_a.json']
+              else:
+                  json.dump(doc, open('/tmp/n_m.json', 'w')); args = ['--mandate', '/tmp/n_m.json', '--action', A]
+              r = subprocess.run(['python3', 'skills/hanria/scripts/check_action.py'] + args,
+                                 capture_output=True, text=True)
+              try:
+                  outcome = json.loads(r.stdout)['outcome']
+              except Exception:
+                  outcome = 'NO-JSON'
+              print('%-32s -> %s (exit %d)' % (name, outcome, r.returncode))
+              if outcome == 'permit' or r.returncode == 0:
+                  bad.append(name)
+          assert not bad, 'these permitted and must not: %s' % bad
+          print('every nested violation failed closed')
+          PY
+      - name: A partially dead carve-out is refused; pure amount tiering is not
+        run: |
+          set +e
+          python3 - <<'PY'
+          import json
+          base = {"schema_version": "0.2-draft", "purpose": "p", "default": "deny"}
+          small = {"id": "small", "effect": "permit", "match": {"kind": ["transaction"],
+                   "verb": ["refund"], "max_amount": {"value": "50", "currency": "USD"}}}
+          # narrows further -> dead below the earlier ceiling -> must be refused
+          json.dump(dict(base, mandate_id="carve", clauses=[small,
+              {"id": "blocked", "effect": "deny", "match": {"kind": ["transaction"],
+               "verb": ["refund"], "counterparty": ["blocked-vendor"],
+               "max_amount": {"value": "500", "currency": "USD"}}}]),
+              open('/tmp/carve.json', 'w'))
+          # same scope, higher ceiling -> legitimate tiering -> must be accepted
+          json.dump(dict(base, mandate_id="tier", clauses=[small,
+              {"id": "medium", "effect": "escalate", "match": {"kind": ["transaction"],
+               "verb": ["refund"], "max_amount": {"value": "500", "currency": "USD"}}}]),
+              open('/tmp/tier.json', 'w'))
+          def req(name, amount, **extra):
+              op = {"kind": "transaction", "verb": "refund", "target": "o1",
+                    "amount": {"value": amount, "currency": "USD"}}
+              op.update(extra)
+              json.dump({"schema_version": "0.1-draft", "requested_by": {"agent": "x"},
+                         "operation": op, "justification": "t"}, open(name, 'w'))
+          req('/tmp/q_carve.json', "10.00", counterparty="blocked-vendor")
+          req('/tmp/q_small.json', "20.00")
+          req('/tmp/q_med.json', "100.00")
+          PY
+          python3 skills/hanria/scripts/check_action.py --mandate /tmp/carve.json --action /tmp/q_carve.json; code=$?
+          test "$code" = "3" || { echo "the partially dead carve-out must be refused, got $code"; exit 1; }
+          python3 skills/hanria/scripts/check_action.py --mandate /tmp/tier.json --action /tmp/q_small.json; code=$?
+          test "$code" = "0" || { echo "tiered small refund must permit, got $code"; exit 1; }
+          python3 skills/hanria/scripts/check_action.py --mandate /tmp/tier.json --action /tmp/q_med.json; code=$?
+          test "$code" = "2" || { echo "tiered medium refund must escalate, got $code"; exit 1; }
+      - name: Deletion of a non-terminal log entry is detected
+        run: |
+          set +e
+          L=/tmp/nonterm.jsonl; rm -f $L $L.head
+          for a in read-ticket read-home refund; do
+            python3 skills/hanria/scripts/check_action.py \
+              --mandate skills/hanria/examples/mandate.example.json \
+              --action skills/hanria/examples/action.$a.json > /tmp/o_$a.json
+            python3 skills/hanria/scripts/record.py append --log $L \
+              --action skills/hanria/examples/action.$a.json --outcome /tmp/o_$a.json
+          done
+          python3 -c "l=[x for x in open('/tmp/nonterm.jsonl') if x.strip()]; del l[1]; open('/tmp/nonterm.jsonl','w').writelines(l)"
+          python3 skills/hanria/scripts/record.py verify --log $L; code=$?
+          test "$code" = "1" || { echo "non-terminal deletion must be detected, got $code"; exit 1; }
+      - name: The evaluator and recorder import no network facility
+        run: |
+          python3 - <<'PY'
+          import ast
+          for f in ('skills/hanria/scripts/check_action.py',
+                    'skills/hanria/scripts/record.py',
+                    'skills/hanria/scripts/_schema.py'):
+              tree = ast.parse(open(f).read())
+              names = set()
+              for n in ast.walk(tree):
+                  if isinstance(n, ast.Import):
+                      names |= {a.name.split('.')[0] for a in n.names}
+                  elif isinstance(n, ast.ImportFrom) and n.module:
+                      names.add(n.module.split('.')[0])
+              banned = names & {'socket', 'http', 'urllib', 'requests', 'ftplib',
+                                'smtplib', 'telnetlib', 'asyncio', 'ssl', 'xmlrpc'}
+              assert not banned, '%s imports %s' % (f, sorted(banned))
+          print('no network facility in the evaluator, recorder or validator')
+          PY

@@ -3,15 +3,40 @@
   "$id": "https://hanria.ai/skill/schema/action-outcome.schema.json",
   "title": "HANRIA action outcome",
   "type": "object",
-  "required": ["schema_version", "outcome"],
+  "required": [
+    "schema_version",
+    "outcome",
+    "reason"
+  ],
   "additionalProperties": false,
   "properties": {
-    "schema_version": { "const": "0.1-draft" },
-    "outcome": { "enum": ["permit", "deny", "escalate", "error"] },
-    "reason": { "type": "string", "description": "Why. Present on deny, escalate and error." },
-    "receipt_ref": { "type": "string", "description": "Reference to a structured record. Present on permit. NOT a proof of anything absent a published format and verifier — none is published." },
-    "approval_ref": { "type": "string", "description": "Reference to a pending human decision. Present on escalate." },
-    "mandate_ref": { "type": "string" }
+    "schema_version": {
+      "const": "0.1-draft"
+    },
+    "outcome": {
+      "enum": [
+        "permit",
+        "deny",
+        "escalate",
+        "error"
+      ]
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Why. Always present."
+    },
+    "mandate_ref": {
+      "type": "string"
+    },
+    "clause": {
+      "type": "string",
+      "description": "Identifier of the clause that decided. Present whenever a clause matched."
+    },
+    "clause_note": {
+      "type": "string",
+      "description": "The clause's note, carried verbatim so a reviewer sees why the clause exists."
+    }
   },
-  "$comment": "A receipt_ref is a pointer to a local record. No receipt format, public verifier, or third-party acceptance has been published. Do not present a receipt_ref as independent verification."
+  "$comment": "An outcome is a local decision record. There is no signature, no verifier and no third-party acceptance: do not present one as evidence that an action was authorized."
 }
