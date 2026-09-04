@@ -1,0 +1,7 @@
+{
+  "schema_version": "0.1-draft",
+  "requested_by": { "agent": "support-triage", "session": "s-4417" },
+  "operation": { "kind": "file", "verb": "read", "target": "/home/operator/.ssh/id_ed25519" },
+  "justification": "I thought I might need this to reach the ticket system.",
+  "mandate_ref": "example-support-triage-2026-09"
+}

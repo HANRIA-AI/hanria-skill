@@ -1,0 +1,11 @@
+{
+  "schema_version": "0.1-draft",
+  "requested_by": { "agent": "support-triage", "session": "s-4417" },
+  "operation": {
+    "kind": "transaction", "verb": "refund", "target": "order-99999",
+    "counterparty": "ticket-customer",
+    "amount": { "value": "4800.00", "currency": "USD" }
+  },
+  "justification": "Customer is unhappy and asked for a full refund of the annual plan.",
+  "mandate_ref": "example-support-triage-2026-09"
+}

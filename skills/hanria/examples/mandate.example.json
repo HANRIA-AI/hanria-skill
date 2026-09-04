@@ -1,0 +1,51 @@
+{
+  "schema_version": "0.2-draft",
+  "mandate_id": "example-support-triage-2026-09",
+  "issued_by": "the operator of this workstation",
+  "purpose": "Let the assistant triage incoming support tickets: read the ticket store, post replies to the ticket system, and install nothing. Refunds are the operator's decision, not the agent's.",
+  "not_valid_after": "2027-01-01T00:00:00Z",
+  "default": "deny",
+  "requires_human": ["credential_use", "transaction", "administrative"],
+  "clauses": [
+    {
+      "id": "c1-read-tickets",
+      "effect": "permit",
+      "note": "The ticket store is the only data the agent needs. Nothing else on disk is in scope.",
+      "match": {
+        "kind": ["file"],
+        "verb": ["read", "list"],
+        "target_prefix": ["/srv/tickets/"]
+      }
+    },
+    {
+      "id": "c2-no-secrets-dir",
+      "effect": "deny",
+      "note": "Stated explicitly rather than left to the default, so the intent is visible to a reviewer.",
+      "match": {
+        "kind": ["file"],
+        "target_prefix": ["/srv/tickets/.secrets/", "/home/", "/etc/"]
+      }
+    },
+    {
+      "id": "c3-reply-to-ticket-system",
+      "effect": "permit",
+      "note": "Replies go to the ticket system and nowhere else. No general outbound network.",
+      "match": {
+        "kind": ["network"],
+        "verb": ["post"],
+        "target_prefix": ["https://tickets.internal.example/api/"]
+      }
+    },
+    {
+      "id": "c4-small-refunds",
+      "effect": "permit",
+      "note": "Kept in the mandate to show the shape of a bounded transaction clause. It still escalates, because 'transaction' is listed in requires_human: a ceiling narrows what may be asked for, it does not remove the person.",
+      "match": {
+        "kind": ["transaction"],
+        "verb": ["refund"],
+        "counterparty": ["ticket-customer"],
+        "max_amount": { "value": "50.00", "currency": "USD" }
+      }
+    }
+  ]
+}
