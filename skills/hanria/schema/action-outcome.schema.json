@@ -6,8 +6,7 @@
   "required": [
     "schema_version",
     "outcome",
-    "reason",
-    "action_digest"
+    "reason"
   ],
   "additionalProperties": false,
   "properties": {
@@ -41,7 +40,7 @@
     "action_digest": {
       "type": "string",
       "minLength": 64,
-      "description": "Digest of the action request this outcome was produced for. A recorder can refuse to store an outcome beside a different action."
+      "description": "Digest of the action request this outcome was produced for. Present whenever a request was evaluated; absent on an error raised before any request was considered, such as an unreadable or non-conforming mandate. A recorder must refuse to store an outcome that lacks it or whose digest names a different action."
     }
   },
   "$comment": "An outcome is a local decision record. There is no signature, no verifier and no third-party acceptance: do not present one as evidence that an action was authorized."

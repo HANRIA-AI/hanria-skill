@@ -254,6 +254,15 @@ def _append(path, action_path, outcome_path):
     # The outcome carries the digest of the request it was produced for.
     # Without this check a `permit` could be filed beside an action that was
     # denied, and the entry would look checked without being checked.
+    # An outcome with no digest was produced before any request was evaluated
+    # -- an error about the mandate itself. There is no decision about this
+    # action in it, so there is nothing to record.
+    if "action_digest" not in outcome:
+        raise SystemExit(
+            "the outcome carries no action_digest, so it was not produced for "
+            "any particular request; refusing to record it as a decision about "
+            "this one")
+
     expected = _action_digest(action)
     if outcome.get("action_digest") != expected:
         raise SystemExit(

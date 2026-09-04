@@ -669,3 +669,18 @@ jobs:
           import json
           assert 'limitations' in json.load(open('hanria-skill.json')), 'manifest must link the limitations'
           print('limitations linked from README, both SKILL.md copies and the manifest')"
+      - name: An outcome with no action binding cannot be recorded
+        run: |
+          set +e
+          python3 skills/hanria/scripts/check_action.py \
+            --mandate skills/hanria/examples/mandate.shadowed-denial.json \
+            --action skills/hanria/examples/action.read-ticket.json > /tmp/err_out.json
+          python3 -c "
+          import json
+          d=json.load(open('/tmp/err_out.json'))
+          assert d['outcome']=='error'
+          assert 'action_digest' not in d, 'an error raised before evaluation binds to no action'"
+          rm -f /tmp/ub.jsonl /tmp/ub.jsonl.head /tmp/ub.jsonl.lock
+          python3 skills/hanria/scripts/record.py append --log /tmp/ub.jsonl \
+            --action skills/hanria/examples/action.read-ticket.json --outcome /tmp/err_out.json; code=$?
+          test "$code" = "3" || { echo "an unbound outcome must be refused, got $code"; exit 1; }
