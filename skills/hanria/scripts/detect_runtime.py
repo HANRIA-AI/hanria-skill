@@ -7,9 +7,9 @@ Exit codes:  0 present   1 absent   2 error
 """
 import json, os, socket, sys, glob
 
-# Candidate endpoints, in preference order. A runtime, if it existed, would
-# advertise one of these. Nothing here is a committed path: no runtime exists,
-# and no fixed socket path has been specified.
+# Where this looks. These are this script's own probe locations, not a
+# specification: no runtime exists, and none of these is a committed path. Set
+# HANRIA_SOCKET to point the probe somewhere else.
 CANDIDATES = [
     os.environ.get("HANRIA_SOCKET", ""),
     os.path.expanduser("~/.hanria/run/hanria.sock"),

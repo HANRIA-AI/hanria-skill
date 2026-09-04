@@ -7,15 +7,15 @@
   "repository": "https://github.com/HANRIA-AI/hanria-skill",
   "license": "MIT",
   "keywords": [
+    "agent-skill",
     "agent-authorization",
     "agent-governance",
-    "policy-enforcement",
     "mandate",
+    "policy-check",
     "audit-log",
-    "reference-monitor",
-    "credential-mediation",
+    "tamper-detection",
     "ai-agents",
-    "guardrails",
-    "tamper-detection"
+    "llm-agents",
+    "guardrails"
   ]
 }

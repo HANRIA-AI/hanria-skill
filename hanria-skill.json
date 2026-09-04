@@ -1,13 +1,44 @@
 {
   "name": "hanria",
-  "version": "0.1.0-draft",
+  "version": "0.2.0",
   "homepage": "https://hanria.ai/",
-  "summary": "Request a governed action through a local HANRIA runtime and receive a permit, denial, approval request, or receipt.",
-  "runtime_required": true,
+  "summary": "Check a proposed agent action against an operator-authored mandate and receive permit, deny or escalate with the governing clause, then append the decision to a hash-chained local log. Works with no runtime and no network. Advisory: it checks and records, it cannot enforce.",
+  "runtime_required": false,
   "runtime_available": false,
   "enforcement_provided_by_skill": false,
-  "critical_notice": "Installing this skill does NOT create enforcement. A skill is context and can be ignored or bypassed. Enforcement requires that protected credentials, tools, keys, or worker processes be reachable only through a runtime that can refuse. As of 2026-09-04 no HANRIA runtime exists; the detection script will report its absence.",
+  "critical_notice": "This skill checks and records; it CANNOT enforce. A skill is context and can be ignored or bypassed, so an agent that ignores a deny still performs the operation. Enforcement requires that protected credentials, tools, keys or worker processes be reachable only through a component that can refuse. As of 2026-09-04 no HANRIA runtime exists.",
   "entrypoints": {
+    "check": {
+      "cmd": "python3 scripts/check_action.py --mandate <mandate.json> --action <request.json>",
+      "network": false,
+      "writes": false,
+      "exit_codes": {
+        "0": "permit",
+        "1": "deny",
+        "2": "escalate",
+        "3": "error"
+      }
+    },
+    "record": {
+      "cmd": "python3 scripts/record.py append --log <log.jsonl> --action <request.json> --outcome <outcome.json>",
+      "network": false,
+      "writes": true,
+      "exit_codes": {
+        "0": "ok",
+        "1": "chain broken",
+        "3": "error"
+      }
+    },
+    "verify": {
+      "cmd": "python3 scripts/record.py verify --log <log.jsonl>",
+      "network": false,
+      "writes": false,
+      "exit_codes": {
+        "0": "intact",
+        "1": "chain broken",
+        "3": "error"
+      }
+    },
     "detect": {
       "cmd": "python3 scripts/detect_runtime.py",
       "network": false,
@@ -16,38 +47,34 @@
         "0": "present",
         "1": "absent",
         "2": "error"
-      }
-    },
-    "request": {
-      "cmd": "python3 scripts/request_action.py --file <request.json>",
-      "network": false,
-      "writes": false,
-      "exit_codes": {
-        "0": "permit",
-        "1": "deny",
-        "2": "escalate",
-        "3": "error or absent"
-      }
+      },
+      "note": "Expected to report absent. Not required for checking or recording."
     }
   },
   "schemas": {
+    "mandate": "https://hanria.ai/skill/schema/mandate.schema.json",
     "request": "https://hanria.ai/skill/schema/action-request.schema.json",
     "outcome": "https://hanria.ai/skill/schema/action-outcome.schema.json"
   },
   "agent_obligations": {
-    "on_absent": "Report unavailability to the operator and stop. Never simulate a decision or a receipt.",
+    "on_absent": "Report that no runtime is present. Checking and recording still work; never describe a checked action as enforced or runtime-governed.",
     "on_deny": "Stop. Do not attempt the operation by another path. Report the denial and its reason.",
     "on_escalate": "Report that approval is pending. Do not proceed and do not retry in a loop.",
     "never": [
       "place a credential, secret, key, or token in a request",
       "describe an action as HANRIA-governed when no runtime answered",
-      "describe HANRIA as available, released, audited, certified, or compliant"
+      "describe HANRIA as available, released, audited, certified, or compliant",
+      "describe a log entry as a receipt, attestation, or evidence to a third party"
     ]
   },
   "not_claimed": [
+    "that this skill prevents, blocks, or enforces anything",
+    "that credential detection in a request is complete; it is a heuristic and can be evaded",
+    "that the decision log detects truncation without a separately retained head",
     "trademark registration or completed clearance in the name HANRIA",
     "third-party security audit, certification, or regulatory approval",
     "published receipt format, public verifier, or interoperability standard",
     "custody of funds, digital assets, or keys"
-  ]
+  ],
+  "runtime_required_for": "Enforcement only. Checking and recording are entirely local."
 }

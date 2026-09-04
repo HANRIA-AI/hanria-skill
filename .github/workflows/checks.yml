@@ -129,3 +129,90 @@ jobs:
           python3 skills/hanria/scripts/record.py append --log $L \
             --action skills/hanria/examples/action.read-ticket.json --outcome /tmp/out.json; code=$?
           test "$code" != "0" || { echo "must refuse to append to a broken chain"; exit 1; }
+      - name: Credential shapes are refused even in innocuous field names
+        run: |
+          set +e
+          M=skills/hanria/examples/mandate.example.json
+          mk () {
+            python3 -c "import json,sys; json.dump({'schema_version':'0.1-draft','requested_by':{'agent':'x'},'operation':{'kind':'file','verb':'read','target':'/srv/tickets/a.json','parameters':{sys.argv[1]:sys.argv[2]}},'justification':'t'}, open('/tmp/c.json','w'))" "$1" "$2"
+          }
+          try () {
+            mk "$1" "$2"
+            python3 skills/hanria/scripts/check_action.py --mandate $M --action /tmp/c.json; code=$?
+            test "$code" = "1" || { echo "credential in field '$1' was not denied (exit $code)"; exit 1; }
+            echo "denied: $1"
+          }
+          try authorization "Bearer abc.def.ghijkl"
+          try cookie "session=abc123def456"
+          try note "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sIgNaTuRe"
+          try note "AKIAIOSFODNN7EXAMPLE"
+          try note "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      - name: An unrecognized mandate condition is refused, never ignored
+        run: |
+          set +e
+          python3 -c "import json; m=json.load(open('skills/hanria/examples/mandate.example.json')); m['clauses'][0]['match']['path_regex']='^/other/'; json.dump(m,open('/tmp/m_unknown.json','w'))"
+          out=$(python3 skills/hanria/scripts/check_action.py --mandate /tmp/m_unknown.json \
+                  --action skills/hanria/examples/action.read-ticket.json); code=$?
+          echo "$out"
+          test "$code" = "3" || { echo "unknown match key must error, got $code"; exit 1; }
+          echo "$out" | grep -qv '"outcome": "permit"' || { echo "must never permit"; exit 1; }
+      - name: A string where a list belongs is refused, not iterated per character
+        run: |
+          set +e
+          python3 -c "import json; m=json.load(open('skills/hanria/examples/mandate.example.json')); m['clauses'][0]['match']['target_prefix']='/srv/tickets/'; json.dump(m,open('/tmp/m_str.json','w'))"
+          python3 skills/hanria/scripts/check_action.py --mandate /tmp/m_str.json \
+            --action skills/hanria/examples/action.read-home.json; code=$?
+          test "$code" = "3" || { echo "string target_prefix must error, got $code"; exit 1; }
+      - name: A request missing required fields does not permit
+        run: |
+          set +e
+          echo '{"operation":{"kind":"file","verb":"read","target":"/srv/tickets/a.json"}}' > /tmp/bare.json
+          python3 skills/hanria/scripts/check_action.py \
+            --mandate skills/hanria/examples/mandate.example.json --action /tmp/bare.json; code=$?
+          test "$code" = "1" || { echo "incomplete request must deny, got $code"; exit 1; }
+      - name: Non-finite and negative amounts error rather than compare
+        run: |
+          set +e
+          for v in NaN Infinity -100.00; do
+            python3 -c "import json,sys; a=json.load(open('skills/hanria/examples/action.refund.json')); a['operation']['amount']['value']=sys.argv[1]; json.dump(a,open('/tmp/amt.json','w'))" "$v"
+            python3 skills/hanria/scripts/check_action.py \
+              --mandate skills/hanria/examples/mandate.example.json --action /tmp/amt.json; code=$?
+            test "$code" = "3" || { echo "amount '$v' must error, got $code"; exit 1; }
+          done
+      - name: Terminal truncation of the log is detected via the head file
+        run: |
+          set +e
+          L=/tmp/trunc.jsonl; rm -f $L $L.head
+          for a in read-ticket read-home refund; do
+            python3 skills/hanria/scripts/check_action.py \
+              --mandate skills/hanria/examples/mandate.example.json \
+              --action skills/hanria/examples/action.$a.json > /tmp/o.json
+            python3 skills/hanria/scripts/record.py append --log $L \
+              --action skills/hanria/examples/action.$a.json --outcome /tmp/o.json
+          done
+          python3 skills/hanria/scripts/record.py verify --log $L || { echo "fresh chain must verify"; exit 1; }
+          python3 -c "l=[x for x in open('/tmp/trunc.jsonl') if x.strip()][:-1]; open('/tmp/trunc.jsonl','w').writelines(l)"
+          out=$(python3 skills/hanria/scripts/record.py verify --log $L); code=$?
+          echo "$out"
+          test "$code" = "1" || { echo "terminal deletion must be detected, got $code"; exit 1; }
+      - name: record.py reports errors as exit 3, not as a broken chain
+        run: |
+          set +e
+          echo 'not json' > /tmp/badlog.jsonl
+          python3 skills/hanria/scripts/record.py verify --log /tmp/badlog.jsonl; code=$?
+          test "$code" = "3" || { echo "malformed log must exit 3, got $code"; exit 1; }
+          python3 skills/hanria/scripts/record.py append --log /tmp/x.jsonl \
+            --action /nope.json --outcome /nope.json; code=$?
+          test "$code" = "3" || { echo "missing inputs must exit 3, got $code"; exit 1; }
+      - name: Manifests do not assert enforcement
+        run: |
+          python3 - <<'PY'
+          import json
+          p=json.load(open('plugin.json')); s=json.load(open('hanria-skill.json'))
+          banned={'policy-enforcement','reference-monitor','credential-mediation','enforcement'}
+          bad=banned & set(p.get('keywords',[]))
+          assert not bad, f'plugin.json keywords assert enforcement: {bad}'
+          assert s.get('runtime_required') is False, 'skill no longer requires a runtime to check'
+          assert s.get('enforcement_provided_by_skill') is False
+          print('manifests consistent:', p['version'], s['version'])
+          PY

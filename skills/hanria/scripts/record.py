@@ -9,9 +9,21 @@ Local, standard library only. No network calls.
 Exit codes:  0 ok   1 chain broken   3 error
 
 WHAT THE CHAIN DOES. Each entry carries the digest of the entry before it, so
-altering or removing any earlier entry changes every digest after it and
-`verify` reports the first index that fails. That is tamper *detection* by
-whoever holds the log.
+altering or removing an entry that has anything after it changes every digest
+that follows, and `verify` reports the first index that fails.
+
+TRUNCATION IS THE EXCEPTION, and it is worth understanding before you rely on
+this. Deleting entries from the *end* leaves a shorter chain that is internally
+perfect, because nothing downstream remains to disagree with it. A chain alone
+cannot detect its own truncation.
+
+The head file closes that gap, but only as far as you protect it. `append`
+maintains `<log>.head`, holding the current head digest and entry count, and
+`verify` checks the log against it whenever it is present. Someone who can
+rewrite both files can still produce a consistent pair -- so keep the head file
+somewhere the log writer cannot reach, or record the head out of band, if
+truncation is a threat you actually face. `--expect-head` lets you supply a head
+you retained yourself.
 
 WHAT IT DOES NOT DO. There is no signature, no published record format and no
 independent verifier, so the chain proves nothing to a third party: anyone who
@@ -46,6 +58,30 @@ def canonical(entry):
     return json.dumps(entry, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+def head_path(path):
+    return path + ".head"
+
+
+def write_head(path, head, count):
+    with open(head_path(path), "w", encoding="utf-8") as fh:
+        json.dump({"head": head, "count": count}, fh)
+        fh.write("\n")
+
+
+def read_head(path):
+    p = head_path(path)
+    if not os.path.exists(p):
+        return None
+    try:
+        with open(p, "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+        if not isinstance(d, dict) or "head" not in d or "count" not in d:
+            return {"malformed": True}
+        return d
+    except (json.JSONDecodeError, OSError):
+        return {"malformed": True}
+
+
 def read_log(path):
     if not os.path.exists(path):
         return []
@@ -63,9 +99,25 @@ def read_log(path):
     return entries
 
 
-def verify(path):
+def verify(path, expect_head=None):
     entries = read_log(path)
+    pinned = read_head(path)
+    if pinned and pinned.get("malformed"):
+        print(json.dumps({
+            "status": "broken",
+            "reason": "the head file %s exists but could not be read; refusing "
+                      "to report a chain as intact against an unreadable pin"
+                      % head_path(path)}, indent=2))
+        return 1
+
     if not entries:
+        if pinned and pinned.get("count", 0) > 0:
+            print(json.dumps({
+                "status": "broken", "at": 0,
+                "reason": "the log is empty but the head file records %d "
+                          "entries; the log was truncated"
+                          % pinned["count"]}, indent=2))
+            return 1
         print(json.dumps({"status": "empty", "entries": 0}, indent=2))
         return 0
 
@@ -99,8 +151,34 @@ def verify(path):
             return 1
         previous = entry["digest"]
 
-    print(json.dumps({"status": "intact", "entries": len(entries),
-                      "head": previous}, indent=2))
+    # A chain cannot detect its own truncation: dropping entries from the end
+    # leaves a shorter chain that verifies perfectly. Only a head retained
+    # outside the log can catch that.
+    expected = expect_head or (pinned or {}).get("head")
+    expected_count = None if expect_head else (pinned or {}).get("count")
+
+    if expected and expected != previous:
+        print(json.dumps({
+            "status": "broken", "entries": len(entries), "head": previous,
+            "reason": "the chain is internally consistent but its head is %s, "
+                      "not the expected %s; entries were removed from the end "
+                      "or the log was rebuilt"
+                      % (previous[:16], expected[:16])}, indent=2))
+        return 1
+    if expected_count is not None and expected_count != len(entries):
+        print(json.dumps({
+            "status": "broken", "entries": len(entries),
+            "reason": "the log holds %d entries but %d were recorded; the log "
+                      "was truncated" % (len(entries), expected_count)}, indent=2))
+        return 1
+
+    print(json.dumps({
+        "status": "intact", "entries": len(entries), "head": previous,
+        "truncationChecked": bool(expected),
+        "note": None if expected else
+                "No retained head was available, so terminal truncation could "
+                "not be ruled out. Keep %s, or pass --expect-head."
+                % head_path(path)}, indent=2))
     return 0
 
 
@@ -145,8 +223,11 @@ def append(path, action_path, outcome_path):
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry, sort_keys=True, separators=(",", ":")) + "\n")
 
+    write_head(path, entry["digest"], index + 1)
+
     print(json.dumps({"status": "appended", "index": index,
-                      "digest": entry["digest"]}, indent=2))
+                      "digest": entry["digest"],
+                      "head": head_path(path)}, indent=2))
     return 0
 
 
@@ -163,11 +244,24 @@ def main():
 
     v = sub.add_parser("verify", help="verify the whole chain")
     v.add_argument("--log", required=True)
+    v.add_argument("--expect-head", default=None,
+                   help="a head digest you retained yourself; overrides the "
+                        "head file and detects truncation")
 
     args = ap.parse_args()
-    if args.command == "append":
-        return append(args.log, args.action, args.outcome)
-    return verify(args.log)
+    try:
+        if args.command == "append":
+            return append(args.log, args.action, args.outcome)
+        return verify(args.log, args.expect_head)
+    except SystemExit as exc:
+        # Documented contract: 3 means error. A bare SystemExit carrying a
+        # message would otherwise exit 1 and be read as "chain broken".
+        print(json.dumps({"status": "error", "reason": str(exc.code)}, indent=2))
+        return 3
+    except Exception as exc:  # noqa: BLE001 - deliberate
+        print(json.dumps({"status": "error",
+                          "reason": "%s: %s" % (type(exc).__name__, exc)}, indent=2))
+        return 3
 
 
 if __name__ == "__main__":

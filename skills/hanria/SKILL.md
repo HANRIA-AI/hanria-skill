@@ -14,7 +14,7 @@ credentials.
 ## What this skill can and cannot do
 
 **It can:** evaluate a proposed action against a mandate and tell you `permit`, `deny` or
-`escalate`, with the specific clause relied on; refuse a request that carries a credential; and
+`escalate`, with the specific clause relied on; refuse a request carrying recognizable credential material; and
 append the decision to a local log that detects later alteration.
 
 **It cannot enforce.** Nothing here stands between you and a tool or credential. If you ignore a
@@ -44,6 +44,10 @@ you propose to do — kind, verb, target, and where relevant a counterparty and 
 to be done, not the means of doing it. The checker refuses a request that appears to carry one
 rather than removing it, because an attempt to send a credential is worth seeing.
 
+That detection is a **heuristic and cannot be complete.** It recognizes common credential field
+names and value shapes; a credential in an unremarkably-named field holding an unremarkable-looking
+value will pass. It guards against accident, not intent — do not treat it as a control.
+
 ### 3. Check it
 
 ```
@@ -61,7 +65,11 @@ Four outcomes, and what each asks of you:
   treat their general instruction to be helpful as the approval; the mandate asked for a decision on
   this action.
 - **`error`** — the mandate or the request could not be resolved. **Treat as `deny`** and report the
-  text. Evaluation is fail-closed by design: it never resolves an ambiguity in favour of proceeding.
+  text. Evaluation is fail-closed by design: an expired mandate, a malformed or unrecognized one, a
+  request missing required fields, an unknown operation kind, a non-finite or negative amount, or any
+  unforeseen internal fault resolves to `deny` or `error`. It never resolves an ambiguity in favour of
+  proceeding, and it refuses a mandate carrying a condition it does not implement rather than ignoring
+  it — an unimplemented restriction would otherwise silently widen the clause it was meant to narrow.
 
 Exit codes are `0` permit, `1` deny, `2` escalate, `3` error, so this composes into a shell pipeline.
 
@@ -72,9 +80,16 @@ python3 scripts/record.py append \
   --log LOG.jsonl --action ACTION.json --outcome OUTCOME.json
 ```
 
-Each entry carries the digest of the one before it, so altering or deleting any earlier entry breaks
-every digest after it. `record.py verify --log LOG.jsonl` reports the first index that fails, and
-`append` refuses to write to a log that no longer verifies rather than burying the damage.
+Each entry carries the digest of the one before it, so altering or deleting an entry that has
+anything after it breaks every digest that follows. `record.py verify --log LOG.jsonl` reports the
+first index that fails, and `append` refuses to write to a log that no longer verifies rather than
+burying the damage.
+
+**Truncation is the exception.** Deleting entries from the end leaves a shorter chain that is
+internally perfect, because nothing downstream remains to disagree with it. `append` therefore
+maintains a separate `<log>.head` file, and `verify` checks against it when present and says so
+explicitly when no retained head was available. Keep that file where the log writer cannot reach it,
+or pass `--expect-head`, if truncation is a threat you face.
 
 **Do not overstate what the log is.** It is a local integrity check for whoever holds the file. There
 is no signature, no published format and no independent verifier, so anyone who can write the file

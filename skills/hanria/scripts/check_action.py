@@ -29,13 +29,36 @@ from decimal import Decimal, InvalidOperation
 
 SCHEMA_VERSION = "0.2-draft"
 
-# Substrings that suggest a secret has been placed in a request. A request is
+# Field names that suggest a secret has been placed in a request. A request is
 # refused rather than sanitized: stripping a credential would hide the fact that
 # the agent tried to send one, which is the more important signal.
+#
+# THIS IS A HEURISTIC AND CANNOT BE COMPLETE. It recognizes common shapes. A
+# credential in an unremarkably-named field holding an unremarkable-looking
+# value will pass. Do not describe this as refusing every request that carries a
+# credential; it refuses requests carrying *recognizable* credential material.
 SECRET_HINTS = (
     "credential", "secret", "private_key", "privatekey", "token",
-    "password", "passwd", "api_key", "apikey", "access_key",
-    "session_key", "bearer", "passphrase",
+    "password", "passwd", "pwd", "api_key", "apikey", "access_key",
+    "secret_key", "session_key", "bearer", "passphrase", "auth",
+    "authorization", "cookie", "set-cookie", "signature", "sig",
+    "client_secret", "refresh_token", "id_token", "sas", "otp",
+)
+
+# Value shapes that are credential material regardless of the field name.
+SECRET_SHAPES = (
+    re.compile(r"\bbearer\s+[A-Za-z0-9._~+/=-]{8,}", re.I),
+    re.compile(r"\bbasic\s+[A-Za-z0-9+/=]{12,}", re.I),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
+    re.compile(r"-----BEGIN (?:CERTIFICATE|OPENSSH|PGP)"),
+    re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+"),  # JWT
+    re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),                              # AWS
+    re.compile(r"\b(?:gh[pousr]|github_pat)_[A-Za-z0-9_]{20,}"),               # GitHub
+    re.compile(r"\bsk-[A-Za-z0-9_-]{20,}"),                                    # common API keys
+    re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}"),                            # Slack
+    re.compile(r"\bAIza[0-9A-Za-z_-]{30,}"),                                   # Google
+    re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:"
+               r"[A-Za-z0-9+/=]{16,}"),                                        # id:secret pairs
 )
 
 KINDS = {
@@ -73,21 +96,31 @@ def _load(path, what):
 
 
 def find_secrets(node, path="action"):
-    """Return dotted paths of keys or string values that look like secrets."""
+    """Return dotted paths of fields or values that look like credentials.
+
+    Heuristic by nature -- see SECRET_HINTS. Matches on three signals: a field
+    name from the vocabulary, a value carrying a recognizable credential shape,
+    or a `name=value` assignment inside a free-text string.
+    """
     hits = []
     if isinstance(node, dict):
         for key, value in node.items():
             here = "%s.%s" % (path, key)
-            if any(h in key.lower() for h in SECRET_HINTS):
+            k = key.lower().replace("-", "_")
+            if any(h.replace("-", "_") in k for h in SECRET_HINTS):
+                # A named credential field with an empty value is still an
+                # attempt worth surfacing.
                 hits.append(here)
             hits.extend(find_secrets(value, here))
     elif isinstance(node, list):
         for i, value in enumerate(node):
             hits.extend(find_secrets(value, "%s[%d]" % (path, i)))
     elif isinstance(node, str):
-        low = node.lower()
-        # A bare mention is not a secret; an assignment is the signal.
-        if re.search(r"(?:%s)\s*[=:]\s*\S" % "|".join(SECRET_HINTS), low):
+        if any(p.search(node) for p in SECRET_SHAPES):
+            hits.append(path)
+        elif re.search(r"(?:%s)\s*[=:]\s*\S" % "|".join(SECRET_HINTS),
+                       node.lower()):
+            # A bare mention is not a secret; an assignment is the signal.
             hits.append(path)
     return hits
 
@@ -100,16 +133,61 @@ def parse_time(text, what):
 
 
 def to_decimal(value, what):
-    try:
-        return Decimal(str(value))
-    except (InvalidOperation, ValueError):
+    """Parse a decimal, refusing anything that cannot be compared meaningfully.
+
+    NaN and the infinities parse as Decimal but either poison or silently skew a
+    comparison, and a negative amount would satisfy any positive ceiling. All
+    three are refused rather than compared.
+    """
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
         raise CheckError("%s is not a decimal: %r" % (what, value))
+    try:
+        d = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        raise CheckError("%s is not a decimal: %r" % (what, value))
+    if not d.is_finite():
+        raise CheckError("%s is not a finite decimal: %r" % (what, value))
+    if d < 0:
+        raise CheckError("%s is negative (%s); a negative amount would satisfy "
+                         "any positive ceiling" % (what, d))
+    return d
+
+
+MATCH_KEYS = {"kind", "verb", "target_prefix", "counterparty", "max_amount"}
+CLAUSE_KEYS = {"id", "effect", "note", "match"}
+MANDATE_KEYS = {"schema_version", "mandate_id", "issued_by", "purpose",
+                "not_valid_after", "default", "requires_human", "clauses"}
+ACTION_REQUIRED = ("schema_version", "requested_by", "operation", "justification")
+
+
+def _str_list(value, what):
+    """Require a non-empty list of strings.
+
+    A bare string here is the dangerous case: `"target_prefix": "/srv/"` would
+    make `startswith` iterate the string character by character, so any target
+    beginning with "/" would match. Refused rather than coerced.
+    """
+    if not isinstance(value, list) or not value:
+        raise CheckError("%s must be a non-empty list, not %s"
+                         % (what, type(value).__name__))
+    for v in value:
+        if not isinstance(v, str):
+            raise CheckError("%s must contain only strings; found %r" % (what, v))
+    return value
 
 
 def validate_mandate(mandate):
     for field in ("schema_version", "mandate_id", "purpose", "default", "clauses"):
         if field not in mandate:
             raise CheckError("mandate is missing required field %r" % field)
+    unknown = set(mandate) - MANDATE_KEYS
+    if unknown:
+        # Fail closed on anything unrecognized. An operator who writes a
+        # restricting condition this evaluator does not implement must be told,
+        # not silently granted the permission they were trying to narrow.
+        raise CheckError("mandate has unrecognized field(s) %s; this evaluator "
+                         "will not ignore a condition it cannot enforce"
+                         % ", ".join(sorted(repr(u) for u in unknown)))
     if mandate["schema_version"] != SCHEMA_VERSION:
         raise CheckError(
             "mandate schema_version is %r; this script evaluates %r only"
@@ -133,13 +211,43 @@ def validate_mandate(mandate):
         if clause["effect"] not in ("permit", "deny", "escalate"):
             raise CheckError("clause %r has unknown effect %r"
                              % (clause["id"], clause["effect"]))
-        kinds = clause["match"].get("kind")
-        if not isinstance(kinds, list) or not kinds:
-            raise CheckError("clause %r has no match.kind" % clause["id"])
-        for kind in kinds:
+        unknown = set(clause) - CLAUSE_KEYS
+        if unknown:
+            raise CheckError("clause %r has unrecognized field(s) %s"
+                             % (clause["id"], ", ".join(sorted(repr(u) for u in unknown))))
+
+        m = clause["match"]
+        if not isinstance(m, dict):
+            raise CheckError("clause %r has a non-object match" % clause["id"])
+        unknown = set(m) - MATCH_KEYS
+        if unknown:
+            raise CheckError(
+                "clause %r has unrecognized match condition(s) %s. This "
+                "evaluator refuses rather than ignoring them: an unimplemented "
+                "condition you wrote to restrict a clause would otherwise widen it"
+                % (clause["id"], ", ".join(sorted(repr(u) for u in unknown))))
+
+        for kind in _str_list(m.get("kind"), "clause %r match.kind" % clause["id"]):
             if kind not in KINDS:
                 raise CheckError("clause %r names unknown kind %r"
                                  % (clause["id"], kind))
+        for key in ("verb", "target_prefix", "counterparty"):
+            if key in m:
+                _str_list(m[key], "clause %r match.%s" % (clause["id"], key))
+        if "max_amount" in m:
+            ceiling = m["max_amount"]
+            if not isinstance(ceiling, dict):
+                raise CheckError("clause %r match.max_amount must be an object"
+                                 % clause["id"])
+            for field in ("value", "currency"):
+                if field not in ceiling:
+                    raise CheckError("clause %r match.max_amount is missing %r"
+                                     % (clause["id"], field))
+            if not isinstance(ceiling["currency"], str) or not ceiling["currency"]:
+                raise CheckError("clause %r match.max_amount.currency must be a "
+                                 "non-empty string" % clause["id"])
+            to_decimal(ceiling["value"],
+                       "clause %r match.max_amount.value" % clause["id"])
     for kind in mandate.get("requires_human", []):
         if kind not in KINDS:
             raise CheckError("requires_human names unknown kind %r" % kind)
@@ -201,11 +309,22 @@ def evaluate(mandate, action, now=None):
             return _outcome("deny", "the mandate expired at %s"
                             % mandate["not_valid_after"], ref)
 
-    if "operation" not in action or not isinstance(action["operation"], dict):
+    missing = [f for f in ACTION_REQUIRED if f not in action]
+    if missing:
+        # A request that does not carry its required fields has not described
+        # itself well enough to be evaluated, so it is not evaluated.
+        return _outcome("deny", "the request is missing required field(s) %s"
+                        % ", ".join(repr(f) for f in missing), ref)
+    if not isinstance(action["operation"], dict):
         return _outcome("deny", "the request states no operation", ref)
     op = action["operation"]
     if op.get("kind") not in KINDS:
         return _outcome("deny", "unknown operation kind %r" % op.get("kind"), ref)
+    for key in ("target", "verb", "counterparty"):
+        if key in op and not isinstance(op[key], (str, type(None))):
+            return _outcome("deny", "operation.%s must be a string" % key, ref)
+    if "amount" in op and not isinstance(op["amount"], dict):
+        return _outcome("deny", "operation.amount must be an object", ref)
 
     secrets = find_secrets(action)
     if secrets:
@@ -258,6 +377,14 @@ def main():
         result = evaluate(_load(args.mandate, "mandate"), _load(args.action, "action request"))
     except CheckError as exc:
         print(json.dumps(_outcome("error", str(exc)), indent=2))
+        return 3
+    except Exception as exc:  # noqa: BLE001 - deliberate
+        # Anything unforeseen is an error outcome with exit 3, never a traceback
+        # and never a missing outcome. A caller reading the exit code must not
+        # be able to mistake an internal fault for a decision.
+        print(json.dumps(_outcome(
+            "error", "internal error while evaluating (%s: %s)"
+                     % (type(exc).__name__, exc)), indent=2))
         return 3
 
     print(json.dumps(result, indent=2))
