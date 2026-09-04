@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "hanria.skill",
+  "version": "0.1.0",
+  "description": "Request a governed action through a local HANRIA runtime and receive a permit, denial, approval request, or receipt. The skill requests authority; only the runtime enforces it. No runtime exists yet — detection reports its absence rather than simulating a decision.",
+  "homepage": "https://hanria.dev/",
+  "repository": "https://github.com/HANRIA-AI/hanria-skill",
+  "license": "MIT",
+  "keywords": [
+    "agent-authorization",
+    "agent-governance",
+    "policy-enforcement",
+    "authorization",
+    "audit-log",
+    "reference-monitor",
+    "credential-mediation",
+    "ai-agents"
+  ]
+}

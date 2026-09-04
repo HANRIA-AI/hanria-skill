@@ -28,12 +28,20 @@ request, or receipt.**
 
 ## Install
 
-No dependencies beyond Python 3.9+. Nothing here makes a network call.
+**Via any Agent Plugins 1.0.0 or skills-registry client** — resolves straight from this repository, no submission or listing required:
+
+```bash
+npx skills add HANRIA-AI/hanria-skill
+```
+
+That installs for Claude Code, Codex, Cursor, GitHub Copilot, Amp, Antigravity and a dozen other runtimes.
+
+**Or clone it.** No dependencies beyond Python 3.9+. Nothing here makes a network call.
 
 ```bash
 git clone https://github.com/HANRIA-AI/hanria-skill.git
 cd hanria-skill
-python3 scripts/detect_runtime.py
+python3 skills/hanria/scripts/detect_runtime.py
 ```
 
 For agent frameworks that load skills from a directory, point them at this repository root. `SKILL.md`
@@ -44,7 +52,7 @@ carries the agent-facing instructions and frontmatter.
 **1. Check for a runtime.** Read-only, no network.
 
 ```bash
-python3 scripts/detect_runtime.py
+python3 skills/hanria/scripts/detect_runtime.py
 ```
 
 | Exit | Status | What the agent must do |
@@ -53,14 +61,14 @@ python3 scripts/detect_runtime.py
 | 1 | `absent` | **Report unavailability and stop.** Do not simulate a decision |
 | 2 | `error` | Treat as absent. Report the error text |
 
-**2. Build a request** against [`schema/action-request.schema.json`](schema/action-request.schema.json).
-See [`examples/`](examples/). A request describes an operation in typed form and **never contains a
+**2. Build a request** against [`skills/hanria/schema/action-request.schema.json`](skills/hanria/schema/action-request.schema.json).
+See [`skills/hanria/examples/`](skills/hanria/examples/). A request describes an operation in typed form and **never contains a
 credential, secret, key, or token.**
 
 **3. Submit it.**
 
 ```bash
-python3 scripts/request_action.py --file examples/read-file.json
+python3 skills/hanria/scripts/request_action.py --file skills/hanria/examples/read-file.json
 ```
 
 | Exit | Outcome | Obligation |
@@ -79,7 +87,7 @@ These are enforced by the code in this repository, not merely documented:
 
 - **Refuses to leak credentials.** `request_action.py` scans a request for credential-shaped keys
   (`credential`, `secret`, `private_key`, `token`, `password`, `api_key`, `bearer`) and refuses to send
-  it, naming the offending JSON path. Tested — see [`examples/rejected-secret.json`](examples/rejected-secret.json).
+  it, naming the offending JSON path. Tested — see [`skills/hanria/examples/rejected-secret.json`](skills/hanria/examples/rejected-secret.json).
 - **No network calls.** Local Unix domain socket only.
 - **Never fabricates an outcome.** With no runtime present it returns `error` with an explicit
   instruction to stop, not a synthetic `permit`.
@@ -111,6 +119,16 @@ acceptance commitment has been published. HANRIA would not hold funds, digital a
 keys, and is not a bank, wallet, exchange, money transmitter, custodian, or regulated financial
 service. Nothing here prevents, detects, reverses, or indemnifies unauthorized, fraudulent, mistaken,
 or loss-causing activity.
+
+## Packaging
+
+This repository is an **[Agent Plugins 1.0.0](https://agent-plugins.org/) plugin** — `plugin.json` at the
+root, the skill under `skills/hanria/`. Agent Plugins is the vendor-neutral packaging standard published by
+Vercel with AWS, Anysphere, GitHub, Microsoft and OpenAI, so a conformant client can load this without
+knowing anything HANRIA-specific.
+
+`SKILL.md` is also kept at the repository root so registry clients that resolve a bare `owner/repo` continue
+to work. CI asserts both paths exist, because breaking either silently breaks a distribution channel.
 
 ## Licence
 

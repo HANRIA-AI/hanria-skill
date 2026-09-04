@@ -7,22 +7,22 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
-      - name: Schemas and manifest are valid JSON
+      - name: Schemas and manifests are valid JSON
         run: |
-          for f in schema/*.json hanria-skill.json examples/*.json; do
+          for f in skills/hanria/schema/*.json plugin.json hanria-skill.json skills/hanria/examples/*.json; do
             python3 -c "import json,sys;json.load(open('$f'));print('ok $f')"
           done
       - name: Detection reports absent, and exits 1
         run: |
           set +e
-          out=$(python3 scripts/detect_runtime.py); code=$?
+          out=$(python3 skills/hanria/scripts/detect_runtime.py); code=$?
           echo "$out"
           test "$code" = "1" || { echo "expected exit 1 (absent), got $code"; exit 1; }
           echo "$out" | grep -q '"status": "absent"' || { echo "expected status absent"; exit 1; }
       - name: A request carrying a credential is refused locally, never sent
         run: |
           set +e
-          out=$(python3 scripts/request_action.py --file examples/rejected-secret.json); code=$?
+          out=$(python3 skills/hanria/scripts/request_action.py --file skills/hanria/examples/rejected-secret.json); code=$?
           echo "$out"
           test "$code" = "3" || { echo "expected exit 3, got $code"; exit 1; }
           echo "$out" | grep -q 'NOT sent' || { echo "expected local refusal"; exit 1; }
@@ -30,11 +30,28 @@ jobs:
       - name: A clean request with no runtime does NOT fabricate an outcome
         run: |
           set +e
-          out=$(python3 scripts/request_action.py --file examples/read-file.json); code=$?
+          out=$(python3 skills/hanria/scripts/request_action.py --file skills/hanria/examples/read-file.json); code=$?
           echo "$out"
           test "$code" = "3" || { echo "expected exit 3, got $code"; exit 1; }
           echo "$out" | grep -q 'no HANRIA runtime is installed' || exit 1
           echo "$out" | grep -qv '"outcome": "permit"' || { echo "must never synthesize permit"; exit 1; }
+      - name: plugin.json conforms to Agent Plugins 1.0.0
+        run: |
+          python3 - <<'PY'
+          import json,re,sys
+          d=json.load(open('plugin.json'))
+          allowed={'$schema','name','version','description','author','homepage','repository','license','keywords','extensions'}
+          extra=set(d)-allowed
+          assert not extra, f'non-spec top-level fields: {extra}'
+          assert d.get('$schema')=='https://agent-plugins.org/schemas/1.0.0/plugin.schema.json', 'wrong $schema'
+          n=d['name']
+          assert 1<=len(n)<=64 and re.fullmatch(r'[a-z0-9][a-z0-9.-]*[a-z0-9]',n) and '--' not in n and '..' not in n, f'bad name: {n}'
+          print('plugin.json conforms:',n)
+          PY
+      - name: Skill is discoverable at both the root and the plugin path
+        run: |
+          test -f SKILL.md || { echo "SKILL.md missing at root (breaks npx skills add)"; exit 1; }
+          test -f skills/hanria/SKILL.md || { echo "skills/hanria/SKILL.md missing (breaks Agent Plugins)"; exit 1; }
       - name: No credential-shaped literals committed
         run: |
           ! grep -rIn --exclude-dir=.git -E 'sk-live-[A-Za-z0-9]{12,}|BEGIN (RSA|EC|OPENSSH) PRIVATE KEY' . \
