@@ -83,9 +83,19 @@ this skill gives you enforcement, that claim is false.**
 
 - Very deeply nested JSON exhausts the recursion limit and produces `error` (exit 3). That is
   fail-closed, but it is a resource limit rather than a validated bound.
+- **The unreachable-clause check compares clauses pairwise.** It catches an earlier clause that
+  decides requests a later restricting clause was written to cover. It does not reason about three or
+  more clauses combining to make a fourth unreachable, and it compares conditions structurally rather
+  than semantically.
+- **Only literal and percent-encoded parent segments are refused.** Other encodings a downstream
+  consumer might decode — a different escaping scheme, an overlong UTF-8 form, a URL that redirects —
+  are not recognized. The target is compared as written after percent-decoding, and nothing
+  canonicalizes it further.
 - There is no bound on document size. A large enough mandate or request will consume memory.
-- `_schema.py` implements the JSON Schema subset these schemas use and refuses any keyword it does
-  not implement. It is not a general-purpose JSON Schema validator and should not be used as one.
+- `_schema.py` implements the JSON Schema subset these schemas use and refuses any keyword, or
+  `format` value, that it does not implement — checked across the whole schema, not only the branches
+  a document happens to reach. It is not a general-purpose JSON Schema validator and should not be
+  used as one.
 
 ## What is not built at all
 
@@ -97,9 +107,13 @@ or attestation. No release date for any of it.
 ## Status of the review that produced this list
 
 Five rounds of independent review by two models, on identical frozen bytes with a reproduced manifest
-digest each round. Twenty-eight defects were found and fixed across rounds one to four; round five
-was still in progress when this was published. Findings were reproduced before being fixed, and each
+digest each round. Thirty-four defects were found and fixed across five rounds. Round five found four more and three
+material issues; six were fixed, and the remainder are entries in this list. Findings were reproduced before being fixed, and each
 has a corresponding test in `.github/workflows/checks.yml`.
+
+Some tests are narrower than the sentence they support: they cover the specific cases written into
+them rather than the general property. Where a reviewer identified that gap we widened the test; the
+gap between "these cases pass" and "this property holds" does not close.
 
 That is a test suite, not a proof. It covers the cases written down in it, and a property is only as
 well established as its test. We publish this list because a reviewed thing with known limits is more

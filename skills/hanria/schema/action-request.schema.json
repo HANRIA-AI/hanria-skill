@@ -40,7 +40,9 @@
     "operation": {
       "type": "object",
       "required": [
-        "kind"
+        "kind",
+        "verb",
+        "target"
       ],
       "additionalProperties": false,
       "properties": {
@@ -58,11 +60,13 @@
         },
         "target": {
           "type": "string",
-          "description": "What the operation acts on. A path, host, package name, or resource identifier. NEVER a secret."
+          "description": "What the operation acts on. A path, host, package name, or resource identifier. NEVER a secret. Required for the same reason as the verb.",
+          "minLength": 1
         },
         "verb": {
           "type": "string",
-          "description": "What is to be done to the target, e.g. read, write, execute, install, connect, sign, transfer."
+          "description": "What is to be done to the target, e.g. read, write, execute, install, connect, sign, transfer. Required: an operation named only by its kind does not describe a proposed action well enough to be judged.",
+          "minLength": 1
         },
         "parameters": {
           "type": "object",

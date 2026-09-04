@@ -110,7 +110,9 @@ boundary is refused (`https://trusted.example` would also match `https://trusted
 A symlink under a permitted prefix is still not something this can see, and a filesystem prefix
 without a trailing `/` will match a sibling — write `/srv/tickets/`, not `/srv/tickets`.
 
-**The log detects alteration**, and deletion of any entry followed by another. It cannot detect
+**The log detects changes to a committed entry body, and to chain structure** — a reordered or
+deleted entry that has another after it. Formatting outside the committed body, such as trailing
+whitespace in the file, is not part of what is hashed and is not detected. It cannot detect
 truncation on its own — a shortened chain has nothing left to disagree with — so `append` maintains a
 separate `<log>.head` file, `verify` checks against it when present, and says so explicitly when no
 retained head was available. Someone who can rewrite both files can still produce a consistent pair.

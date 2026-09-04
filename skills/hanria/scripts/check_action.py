@@ -28,6 +28,7 @@ import os
 import re
 import sys
 from decimal import Decimal, InvalidOperation
+from urllib.parse import unquote as _unquote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _schema  # noqa: E402
@@ -429,7 +430,11 @@ def _overlaps(earlier, later):
     if "max_amount" in e:
         scope = lambda m: {k: sorted(v) if isinstance(v, list) else v
                            for k, v in m.items() if k != "max_amount"}
-        if "max_amount" in l and scope(e) == scope(l):
+        if scope(e) == scope(l):
+            if "max_amount" not in l:
+                # "deny the rest": unbounded, so live for every amount above
+                # the earlier ceiling. This is the documented three-tier shape.
+                return False
             ec, lc = e["max_amount"], l["max_amount"]
             if ec["currency"] == lc["currency"] and \
                     to_decimal(lc["value"], "ceiling") > to_decimal(ec["value"], "ceiling"):
@@ -443,12 +448,15 @@ def _refuse_unreachable(clauses):
         if later["effect"] == "permit":
             continue
         for earlier in clauses[:i]:
-            if earlier["effect"] != "permit":
+            # Any earlier clause decides, not only a permitting one: a broad
+            # escalation placed above an absolute denial means the denial never
+            # runs, and the operator who wrote "never, for anyone" gets "ask me".
+            if earlier["effect"] == later["effect"]:
                 continue
             if _overlaps(earlier, later):
                 raise CheckError(
                     "clause %r is unreachable for part or all of what it "
-                    "covers: the earlier clause %r permits requests that %r "
+                    "covers: the earlier clause %r already decides requests that %r "
                     "was written to restrict, and the first matching clause "
                     "decides. Move %r above %r. A restriction that never runs "
                     "is worse than one you never wrote, because it reads as "
@@ -551,13 +559,23 @@ def _evaluate(mandate, action, now=None):
     # land outside it. Refused before any clause is consulted, because no
     # honestly-described operation needs one.
     target = op.get("target") or ""
-    if any(seg == ".." for seg in re.split(r"[/\\]", target)):
+    # Decode percent-escapes before looking for parent segments: "%2e%2e" is
+    # "..", and anything that decodes the target later would see it that way.
+    # Repeated until stable, so double-encoding cannot hide a segment.
+    decoded, seen = target, set()
+    while decoded not in seen:
+        seen.add(decoded)
+        try:
+            decoded = _unquote(decoded)
+        except Exception:
+            break
+    if any(seg == ".." for seg in re.split(r"[/\\]", decoded)):
         return _outcome(
             "deny",
-            "the target %r contains a parent-directory segment; prefix rules "
-            "are matched literally, so such a target could satisfy a prefix "
-            "and still resolve outside it. State the resolved target instead."
-            % target, ref)
+            "the target %r contains a parent-directory segment (as written or "
+            "once percent-decoded); prefix rules are matched literally, so such "
+            "a target could satisfy a prefix and still resolve outside it. "
+            "State the resolved target instead." % target, ref)
     if "amount" in op and not isinstance(op["amount"], dict):
         return _outcome("deny", "operation.amount must be an object", ref)
 

@@ -684,3 +684,72 @@ jobs:
           python3 skills/hanria/scripts/record.py append --log /tmp/ub.jsonl \
             --action skills/hanria/examples/action.read-ticket.json --outcome /tmp/err_out.json; code=$?
           test "$code" = "3" || { echo "an unbound outcome must be refused, got $code"; exit 1; }
+      - name: A request must describe the operation, not just its kind
+        run: |
+          set +e
+          python3 -c "
+          import json
+          json.dump({'schema_version':'0.2-draft','mandate_id':'ko','purpose':'p','default':'deny','clauses':[{'id':'all','effect':'permit','match':{'kind':['file']}}]},open('/tmp/ko_m.json','w'))
+          json.dump({'schema_version':'0.1-draft','requested_by':{'agent':'x'},'operation':{'kind':'file'},'justification':'t'},open('/tmp/ko_a.json','w'))"
+          python3 skills/hanria/scripts/check_action.py --mandate /tmp/ko_m.json --action /tmp/ko_a.json; code=$?
+          test "$code" = "1" || { echo "a kind-only request must not permit, got $code"; exit 1; }
+      - name: A percent-encoded parent segment is refused
+        run: |
+          set +e
+          python3 -c "
+          import json
+          json.dump({'schema_version':'0.2-draft','mandate_id':'enc','purpose':'p','default':'deny','clauses':[{'id':'api','effect':'permit','match':{'kind':['network'],'verb':['get'],'target_prefix':['https://trusted.example/api/']}}]},open('/tmp/enc_m.json','w'))
+          json.dump({'schema_version':'0.1-draft','requested_by':{'agent':'x'},'operation':{'kind':'network','verb':'get','target':'https://trusted.example/api/%2e%2e/admin'},'justification':'t'},open('/tmp/enc_a.json','w'))"
+          out=$(python3 skills/hanria/scripts/check_action.py --mandate /tmp/enc_m.json --action /tmp/enc_a.json); code=$?
+          echo "$out"
+          test "$code" = "1" || { echo "an encoded parent segment must be denied, got $code"; exit 1; }
+      - name: The documented three-tier policy works as documented
+        run: |
+          set +e
+          python3 -c "
+          import json
+          json.dump({'schema_version':'0.2-draft','mandate_id':'t3','purpose':'p','default':'deny','clauses':[
+            {'id':'small','effect':'permit','match':{'kind':['transaction'],'verb':['refund'],'max_amount':{'value':'50','currency':'USD'}}},
+            {'id':'medium','effect':'escalate','match':{'kind':['transaction'],'verb':['refund'],'max_amount':{'value':'500','currency':'USD'}}},
+            {'id':'large-deny','effect':'deny','match':{'kind':['transaction'],'verb':['refund']}}]},open('/tmp/t3.json','w'))
+          for v in ('20','300','5000'):
+              json.dump({'schema_version':'0.1-draft','requested_by':{'agent':'x'},'operation':{'kind':'transaction','verb':'refund','target':'o','amount':{'value':v,'currency':'USD'}},'justification':'t'},open('/tmp/t3_%s.json' % v,'w'))"
+          for pair in "20 0" "300 2" "5000 1"; do
+            set -- $pair
+            python3 skills/hanria/scripts/check_action.py --mandate /tmp/t3.json --action /tmp/t3_$1.json; code=$?
+            test "$code" = "$2" || { echo "three-tier USD $1: want exit $2, got $code"; exit 1; }
+          done
+      - name: An earlier escalation cannot silently kill a later denial
+        run: |
+          set +e
+          python3 -c "
+          import json
+          json.dump({'schema_version':'0.2-draft','mandate_id':'eb','purpose':'p','default':'deny','clauses':[
+            {'id':'human-first','effect':'escalate','match':{'kind':['transaction']}},
+            {'id':'never-blocked','effect':'deny','match':{'kind':['transaction'],'counterparty':['blocked']}}]},open('/tmp/eb.json','w'))
+          json.dump({'schema_version':'0.1-draft','requested_by':{'agent':'x'},'operation':{'kind':'transaction','verb':'pay','target':'o','counterparty':'blocked'},'justification':'t'},open('/tmp/eb_a.json','w'))"
+          python3 skills/hanria/scripts/check_action.py --mandate /tmp/eb.json --action /tmp/eb_a.json; code=$?
+          test "$code" = "3" || { echo "an unreachable denial after an escalation must be refused, got $code"; exit 1; }
+      - name: The validator refuses what it does not implement, everywhere
+        run: |
+          python3 - <<'PY'
+          import sys
+          sys.path.insert(0, 'skills/hanria/scripts')
+          import _schema
+          def must_refuse(name, schema, doc):
+              try:
+                  _schema.validate(doc, schema)
+              except _schema.SchemaError:
+                  return
+              raise AssertionError('%s was accepted and must not be' % name)
+          must_refuse('unknown format',
+                      {"type": "object", "properties": {"a": {"type": "string", "format": "email"}}},
+                      {"a": "x"})
+          must_refuse('unsupported keyword under an absent property',
+                      {"type": "object", "properties": {"missing": {"type": "string", "pattern": "^x$"}}},
+                      {})
+          must_refuse('impossible calendar date',
+                      {"type": "string", "format": "date-time"}, "2026-02-31T00:00:00Z")
+          _schema.validate("2026-02-28T00:00:00Z", {"type": "string", "format": "date-time"})
+          print('validator refuses unimplemented keywords, formats and impossible dates')
+          PY

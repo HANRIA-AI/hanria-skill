@@ -45,6 +45,23 @@ _RFC3339 = re.compile(
     r"(?:[Zz]|[+-](?:[01]\d|2[0-3]):[0-5]\d)$")
 
 
+def _check_date_time(value, path):
+    """RFC 3339 shape AND a real calendar date.
+
+    The pattern alone accepts 2026-02-31: bounded digits are not a calendar.
+    """
+    if not _RFC3339.match(value):
+        raise SchemaError("%s must be an RFC 3339 date-time (a date, a time and "
+                          "an offset), not %r" % (path, value))
+    try:
+        _dt.date(int(value[0:4]), int(value[5:7]), int(value[8:10]))
+    except ValueError:
+        raise SchemaError("%s is not a real calendar date: %r" % (path, value))
+
+
+_FORMATS = {"date-time": _check_date_time}
+
+
 class SchemaError(Exception):
     """The document does not conform, or the schema uses something unsupported."""
 
@@ -97,14 +114,34 @@ def _type_ok(value, expected):
     return isinstance(value, py)
 
 
-def validate(doc, schema, path="$"):
-    """Raise SchemaError on the first violation. Returns None on success."""
+def check_schema(schema, path="$"):
+    """Walk the whole schema and refuse any keyword or format not implemented.
+
+    Doing this only while traversing a document would miss every branch the
+    document does not reach -- an unimplemented constraint under an absent
+    property, or inside the items of an empty array, would be "supported"
+    purely because nothing went there.
+    """
     unsupported = set(schema) - SUPPORTED
     if unsupported:
         raise SchemaError(
             "schema at %s uses unsupported keyword(s) %s; this validator "
             "refuses rather than ignoring them"
             % (path, ", ".join(sorted(repr(u) for u in unsupported))))
+    if "format" in schema and schema["format"] not in _FORMATS:
+        raise SchemaError("schema at %s uses format %r, which this validator "
+                          "does not implement" % (path, schema["format"]))
+    for key, sub in schema.get("properties", {}).items():
+        check_schema(sub, "%s.%s" % (path, key))
+    if "items" in schema:
+        check_schema(schema["items"], path + "[]")
+
+
+def validate(doc, schema, path="$", _checked=False):
+    """Raise SchemaError on the first violation. Returns None on success."""
+    if not _checked:
+        check_schema(schema, path)
+        _checked = True
 
     if "const" in schema and doc != schema["const"]:
         raise SchemaError("%s must be %r, not %r" % (path, schema["const"], doc))
@@ -121,10 +158,13 @@ def validate(doc, schema, path="$"):
         if "minLength" in schema and len(doc) < schema["minLength"]:
             raise SchemaError("%s must be at least %d character(s)"
                               % (path, schema["minLength"]))
-        if schema.get("format") == "date-time" and not _RFC3339.match(doc):
-            raise SchemaError(
-                "%s must be an RFC 3339 date-time (a date, a time and an "
-                "offset), not %r" % (path, doc))
+        if "format" in schema:
+            fmt = schema["format"]
+            if fmt not in _FORMATS:
+                raise SchemaError(
+                    "schema at %s uses format %r, which this validator does not "
+                    "implement; it refuses rather than ignoring it" % (path, fmt))
+            _FORMATS[fmt](doc, path)
 
     if isinstance(doc, list):
         if "minItems" in schema and len(doc) < schema["minItems"]:
@@ -135,7 +175,7 @@ def validate(doc, schema, path="$"):
                               % (path, schema["maxItems"]))
         if "items" in schema:
             for i, item in enumerate(doc):
-                validate(item, schema["items"], "%s[%d]" % (path, i))
+                validate(item, schema["items"], "%s[%d]" % (path, i), True)
 
     if isinstance(doc, dict):
         for field in schema.get("required", []):
@@ -149,7 +189,7 @@ def validate(doc, schema, path="$"):
                                   % (path, ", ".join(sorted(repr(e) for e in extra))))
         for key, value in doc.items():
             if key in props:
-                validate(value, props[key], "%s.%s" % (path, key))
+                validate(value, props[key], "%s.%s" % (path, key), True)
 
 
 def load(path, what=None):
