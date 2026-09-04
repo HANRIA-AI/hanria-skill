@@ -136,8 +136,8 @@ integrity check, not evidence.
 
 ## Status
 
-HANRIA is in development. HANRIA is a candidate name under internal trademark review — no
-registration, completed clearance, or exclusive rights are claimed. No security certification,
+HANRIA is in development. A U.S. trademark application for HANRIA is pending — no
+registration or completed clearance is claimed. No security certification,
 audit, or product availability is claimed. The schemas are drafts and may change.
 
 More at [hanria.ai](https://hanria.ai/).

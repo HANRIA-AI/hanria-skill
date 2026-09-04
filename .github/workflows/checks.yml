@@ -356,9 +356,9 @@ jobs:
           python3 -c "
           import re,sys
           t=re.sub(r'\s+',' ',open('TRADEMARK.md').read())
-          assert 'No registration, completed clearance, or exclusive rights are claimed' in t, \
-              'TRADEMARK.md must state that no rights are claimed'
-          print('TRADEMARK.md states that no rights are claimed')
+          assert 'No registration or completed clearance is claimed' in t, \
+              'TRADEMARK.md must disclaim registration and completed clearance'
+          print('TRADEMARK.md disclaims registration and completed clearance')
           "
       - name: Availability prohibitions are scoped to the runtime, not to HANRIA
         run: |

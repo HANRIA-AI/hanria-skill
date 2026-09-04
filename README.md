@@ -143,8 +143,8 @@ established as its test.
 The skill is released and usable. The **enforcement runtime is not** — no capability of it is
 released, packaged, downloadable, or offered for use, and no release date is announced or implied.
 
-HANRIA is a candidate name under internal trademark review. No registration, completed clearance, or
-exclusive rights are claimed. No third-party security audit, certification, or regulatory approval is
+A U.S. trademark application for HANRIA is pending. No registration or completed clearance
+is claimed. No third-party security audit, certification, or regulatory approval is
 claimed. No record format, public verifier, interoperability standard, or third-party acceptance
 commitment has been published. Nothing here holds funds, digital assets, or keys.
 
