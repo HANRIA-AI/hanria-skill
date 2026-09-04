@@ -216,3 +216,48 @@ jobs:
           assert s.get('enforcement_provided_by_skill') is False
           print('manifests consistent:', p['version'], s['version'])
           PY
+      - name: An unreachable restricting clause is refused, not silently dead
+        run: |
+          set +e
+          out=$(python3 skills/hanria/scripts/check_action.py \
+            --mandate skills/hanria/examples/mandate.shadowed-denial.json \
+            --action skills/hanria/examples/action.read-ticket.json); code=$?
+          echo "$out"
+          test "$code" = "3" || { echo "a shadowed denial must error, got $code"; exit 1; }
+          echo "$out" | grep -q 'unreachable' || { echo "expected the reason to name unreachability"; exit 1; }
+      - name: The shipped example mandate actually protects what its notes claim
+        run: |
+          set +e
+          M=skills/hanria/examples/mandate.example.json
+          for a in secrets-dir traversal; do
+            python3 skills/hanria/scripts/check_action.py --mandate $M \
+              --action skills/hanria/examples/action.$a.json; code=$?
+            test "$code" = "1" || { echo "action.$a must be denied, got $code"; exit 1; }
+          done
+      - name: A parent-directory segment in a target is refused
+        run: |
+          set +e
+          python3 -c "import json; json.dump({'schema_version':'0.1-draft','requested_by':{'agent':'x'},'operation':{'kind':'file','verb':'read','target':'/srv/tickets/../../etc/shadow'},'justification':'t'}, open('/tmp/tr.json','w'))"
+          out=$(python3 skills/hanria/scripts/check_action.py \
+            --mandate skills/hanria/examples/mandate.example.json --action /tmp/tr.json); code=$?
+          echo "$out"
+          test "$code" = "1" || { echo "traversal must deny, got $code"; exit 1; }
+          echo "$out" | grep -q 'parent-directory' || exit 1
+      - name: An unrecognized request field does not permit
+        run: |
+          set +e
+          python3 -c "import json; a=json.load(open('skills/hanria/examples/action.read-ticket.json')); a['extra_field']='x'; json.dump(a,open('/tmp/xf.json','w'))"
+          python3 skills/hanria/scripts/check_action.py \
+            --mandate skills/hanria/examples/mandate.example.json --action /tmp/xf.json; code=$?
+          test "$code" = "1" || { echo "unrecognized request field must deny, got $code"; exit 1; }
+      - name: README and SKILL.md agree that the skill cannot enforce
+        run: |
+          for f in README.md SKILL.md skills/hanria/SKILL.md; do
+            grep -qi 'cannot enforce\|does not enforce\|cannot prevent' "$f" \
+              || { echo "$f does not state that the skill cannot enforce"; exit 1; }
+            grep -qi 'no HANRIA runtime exists\|not released' "$f" \
+              || { echo "$f does not state the runtime is unreleased"; exit 1; }
+          done
+          grep -qi 'runtime client\|Request a governed action through a local HANRIA runtime' README.md \
+            && { echo "README retains pre-rewrite runtime-client framing"; exit 1; }
+          echo "README and SKILL.md consistent"

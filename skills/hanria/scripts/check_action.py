@@ -158,6 +158,10 @@ CLAUSE_KEYS = {"id", "effect", "note", "match"}
 MANDATE_KEYS = {"schema_version", "mandate_id", "issued_by", "purpose",
                 "not_valid_after", "default", "requires_human", "clauses"}
 ACTION_REQUIRED = ("schema_version", "requested_by", "operation", "justification")
+# Mirrors the closed `additionalProperties: false` in the published schemas.
+ACTION_KEYS = {"schema_version", "requested_by", "operation", "justification",
+               "mandate_ref", "idempotency_key"}
+OPERATION_KEYS = {"kind", "target", "verb", "parameters", "amount", "counterparty"}
 
 
 def _str_list(value, what):
@@ -252,6 +256,63 @@ def validate_mandate(mandate):
         if kind not in KINDS:
             raise CheckError("requires_human names unknown kind %r" % kind)
 
+    _refuse_unreachable(clauses)
+
+
+def _overlaps(earlier, later):
+    """True when some request would match `earlier` as well as `later`.
+
+    Clauses are first-match-wins, so any request in the overlap is decided by
+    the earlier clause. Where the earlier clause permits and the later one
+    restricts, every request in that overlap escapes the restriction -- and the
+    restriction still reads, to whoever reviews the mandate, as though it
+    applies. That is the exact failure this tool exists to catch, and nothing
+    surfaces it unless something looks.
+
+    Total shadowing is not required, and testing only for it would miss the
+    common case: a denial that is dead for the verbs an earlier permit covers
+    and live for the rest is the more confusing of the two, not the safer.
+    """
+    e, l = earlier["match"], later["match"]
+
+    if not set(e["kind"]) & set(l["kind"]):
+        return False
+
+    if "verb" in e and "verb" in l:
+        if not {v.lower() for v in e["verb"]} & {v.lower() for v in l["verb"]}:
+            return False
+
+    if "target_prefix" in e and "target_prefix" in l:
+        # Two prefixes can both apply only if one extends the other.
+        if not any(lp.startswith(ep) or ep.startswith(lp)
+                   for ep in e["target_prefix"] for lp in l["target_prefix"]):
+            return False
+
+    if "counterparty" in e and "counterparty" in l:
+        if not set(e["counterparty"]) & set(l["counterparty"]):
+            return False
+
+    return True
+
+
+def _refuse_unreachable(clauses):
+    for i, later in enumerate(clauses):
+        if later["effect"] == "permit":
+            continue
+        for earlier in clauses[:i]:
+            if earlier["effect"] != "permit":
+                continue
+            if _overlaps(earlier, later):
+                raise CheckError(
+                    "clause %r is unreachable for part or all of what it "
+                    "covers: the earlier clause %r permits requests that %r "
+                    "was written to restrict, and the first matching clause "
+                    "decides. Move %r above %r. A restriction that never runs "
+                    "is worse than one you never wrote, because it reads as "
+                    "though it applies."
+                    % (later["id"], earlier["id"], later["id"],
+                       later["id"], earlier["id"]))
+
 
 def clause_matches(clause, op):
     """True when every condition present in the clause holds for the operation.
@@ -323,8 +384,32 @@ def evaluate(mandate, action, now=None):
     for key in ("target", "verb", "counterparty"):
         if key in op and not isinstance(op[key], (str, type(None))):
             return _outcome("deny", "operation.%s must be a string" % key, ref)
+
+    # Prefix matching is literal by design -- it resolves nothing -- so a target
+    # containing a parent-directory segment could satisfy a prefix and still
+    # land outside it. Refused before any clause is consulted, because no
+    # honestly-described operation needs one.
+    target = op.get("target") or ""
+    if any(seg == ".." for seg in re.split(r"[/\\]", target)):
+        return _outcome(
+            "deny",
+            "the target %r contains a parent-directory segment; prefix rules "
+            "are matched literally, so such a target could satisfy a prefix "
+            "and still resolve outside it. State the resolved target instead."
+            % target, ref)
     if "amount" in op and not isinstance(op["amount"], dict):
         return _outcome("deny", "operation.amount must be an object", ref)
+
+    # The published request schema is closed (additionalProperties: false), so
+    # an unrecognized field means the request is not the shape it claims to be.
+    unknown = set(action) - ACTION_KEYS
+    if unknown:
+        return _outcome("deny", "the request has unrecognized field(s) %s"
+                        % ", ".join(sorted(repr(u) for u in unknown)), ref)
+    unknown = set(op) - OPERATION_KEYS
+    if unknown:
+        return _outcome("deny", "operation has unrecognized field(s) %s"
+                        % ", ".join(sorted(repr(u) for u in unknown)), ref)
 
     secrets = find_secrets(action)
     if secrets:

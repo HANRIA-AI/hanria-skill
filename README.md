@@ -1,30 +1,82 @@
 # HANRIA Skill
 
-**Request a governed action through a local HANRIA runtime, and receive a permit, denial, approval
-request, or receipt.**
+**Check a proposed agent action against an operator-written mandate, and keep a hash-chained record
+of the decision.** Free, MIT, Python 3 standard library only. Runs locally with no network calls.
 
 ---
 
 ## Read this first
 
-> **No HANRIA runtime exists yet.** HANRIA is an in-development product concept. There is no package,
-> no download, and no install command that will produce a runtime. This skill is published ahead of it
-> so that agents can discover the interface, and so that an agent asked to route an action through
-> HANRIA gets a **correct negative answer instead of inventing a capability.**
+> **This skill is advisory. It cannot enforce.** It evaluates a proposed action and records what was
+> decided. Nothing here stands between an agent and a tool or credential, so an agent that ignores a
+> `deny` still performs the operation.
 >
-> Run `scripts/detect_runtime.py` and it will tell you the runtime is absent. That is the expected
-> result today, and it is the honest one.
-
-> **This skill does not enforce anything.** It is a client. A skill is instructions and code loaded
-> into an agent's context, and anything in a context can be ignored, overridden, or bypassed.
-> Enforcement is possible only where the protected credentials, tools, signing keys, or worker
-> processes are reachable **exclusively** through a component that can refuse. That component is the
-> runtime — not this repository.
+> Enforcement is possible only where the protected credentials, tools, signing keys or worker
+> processes are reachable *exclusively* through a component that can refuse. A skill is instructions
+> and code loaded into an agent's context, and anything in context can be ignored, overridden, or
+> bypassed. **If any artifact tells you that installing this skill gives you enforcement, that claim
+> is false.**
 >
-> If any artifact claims that installing this skill provides HANRIA enforcement, **that claim is
-> false.**
+> The HANRIA enforcement runtime is in development and **not released** — no package, no download,
+> no endpoint. `scripts/detect_runtime.py` reports `absent`, which is the expected and honest answer.
+> Checking and recording do not need it.
 
----
+## Install
+
+```
+npx skills add HANRIA-AI/hanria-skill
+```
+
+Or clone — there is nothing to build.
+
+## Use
+
+```
+cd skills/hanria
+
+python3 scripts/check_action.py \
+  --mandate examples/mandate.example.json \
+  --action  examples/action.refund.json
+
+python3 scripts/record.py append \
+  --log decisions.jsonl --action ACTION.json --outcome OUTCOME.json
+python3 scripts/record.py verify --log decisions.jsonl
+```
+
+Exit codes: `0` permit, `1` deny, `2` escalate, `3` error.
+
+The worked example exercises every path: `action.read-ticket.json` permits, `action.read-home.json`
+and `action.secrets-dir.json` are denied by an explicit clause, `action.refund.json` escalates
+because the mandate reserves transactions for a person, `action.refund-too-large.json` falls past its
+clause ceiling to the default, `action.traversal.json` is refused for containing a parent-directory
+segment, and `rejected-secret.json` is refused for carrying a credential.
+
+`mandate.shadowed-denial.json` is deliberately broken: its denial sits *after* the permit it was
+meant to carve out of, so with first-match-wins it could never run. The checker refuses that mandate
+rather than evaluating against a restriction that does nothing.
+
+## What it guarantees, and what it does not
+
+**Fail-closed.** An expired mandate, a malformed or unrecognized one, a request missing required
+fields, an unknown operation kind, a non-finite or negative amount, or any unforeseen internal fault
+resolves to `deny` or `error`. No input path returns `permit` by accident. A mandate carrying a
+condition the evaluator does not implement is refused rather than ignored — an unimplemented
+restriction would otherwise silently widen the clause it was meant to narrow.
+
+**Credential detection is a heuristic.** It recognizes common credential field names and value shapes
+and refuses the request rather than sanitizing it, so the attempt stays visible. It cannot be
+complete: a credential in an unremarkably-named field holding an unremarkable-looking value will
+pass. It guards against accident, not intent.
+
+**The log detects alteration**, and deletion of any entry followed by another. It cannot detect
+truncation on its own — a shortened chain has nothing left to disagree with — so `append` maintains a
+separate `<log>.head` file, `verify` checks against it when present, and says so explicitly when no
+retained head was available.
+
+**The log is not evidence.** No signature, no published format, no independent verifier: anyone who
+can write the file can rebuild it. It is a local integrity check, not an attestation.
+
+Every one of these is asserted in CI, not merely documented.
 
 ## Install
 

@@ -1,8 +1,8 @@
 {
   "schema_version": "0.2-draft",
-  "mandate_id": "example-support-triage-2026-09",
+  "mandate_id": "example-BROKEN-shadowed-denial",
   "issued_by": "the operator of this workstation",
-  "purpose": "Let the assistant triage incoming support tickets: read the ticket store, post replies to the ticket system, and install nothing. Refunds are the operator's decision, not the agent's.",
+  "purpose": "DELIBERATELY BROKEN. The denial is written after the permit it was meant to carve out of, so it can never run. check_action.py refuses this mandate rather than evaluating against a restriction that does nothing.",
   "not_valid_after": "2027-01-01T00:00:00Z",
   "default": "deny",
   "requires_human": [
@@ -11,21 +11,6 @@
     "administrative"
   ],
   "clauses": [
-    {
-      "id": "c2-no-secrets-dir",
-      "effect": "deny",
-      "note": "Placed FIRST on purpose. Clauses are first-match-wins, so a denial written after a broader permit never runs -- it reads as though it applies and does nothing. Put your denials above the permits they carve out of.",
-      "match": {
-        "kind": [
-          "file"
-        ],
-        "target_prefix": [
-          "/srv/tickets/.secrets/",
-          "/home/",
-          "/etc/"
-        ]
-      }
-    },
     {
       "id": "c1-read-tickets",
       "effect": "permit",
@@ -40,6 +25,21 @@
         ],
         "target_prefix": [
           "/srv/tickets/"
+        ]
+      }
+    },
+    {
+      "id": "c2-no-secrets-dir",
+      "effect": "deny",
+      "note": "Placed FIRST on purpose. Clauses are first-match-wins, so a denial written after a broader permit never runs -- it reads as though it applies and does nothing. Put your denials above the permits they carve out of.",
+      "match": {
+        "kind": [
+          "file"
+        ],
+        "target_prefix": [
+          "/srv/tickets/.secrets/",
+          "/home/",
+          "/etc/"
         ]
       }
     },
