@@ -119,6 +119,9 @@ retained head was available. Someone who can rewrite both files can still produc
 can write the file can rebuild it. It is a local integrity check, not an attestation, and not proof
 to anyone else that an action was authorized.
 
+**[LIMITATIONS.md](LIMITATIONS.md) lists every limit we know about**, including the ones we chose to
+publish rather than fix. Read it before relying on this.
+
 Each of these has a corresponding test in
 [`.github/workflows/checks.yml`](.github/workflows/checks.yml), which runs on every push. That is a
 test suite, not a proof: it covers the cases written down in it, and a property is only as well

@@ -32,7 +32,9 @@ It is a local integrity check, not evidence. Do not describe an entry here as a
 receipt, an attestation, or proof that an action was authorized.
 """
 import argparse
+import contextlib
 import datetime as _dt
+import fcntl
 import hashlib
 import json
 import os
@@ -65,6 +67,12 @@ def canonical(entry):
     """Bytes that a digest commits to. Sorted keys and no insignificant space,
     so the same entry always hashes the same way."""
     return json.dumps(entry, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _action_digest(action):
+    """Must match check_action.action_digest byte for byte."""
+    canonical = json.dumps(action, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(b"hanria-action-v1" + canonical.encode("utf-8")).hexdigest()
 
 
 def head_path(path):
@@ -202,7 +210,30 @@ def verify(path, expect_head=None):
     return 0
 
 
+@contextlib.contextmanager
+def _exclusive(path):
+    """Serialize appends.
+
+    Read-modify-write on the chain is not atomic: concurrent appends read the
+    same head, and the losers are lost or interleaved, leaving a log that no
+    longer verifies. An advisory lock on a sidecar file is enough here, and
+    costs nothing when there is no contention.
+    """
+    lock = open(path + ".lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        lock.close()
+
+
 def append(path, action_path, outcome_path):
+    with _exclusive(path):
+        return _append(path, action_path, outcome_path)
+
+
+def _append(path, action_path, outcome_path):
     for p, what in ((action_path, "action"), (outcome_path, "outcome")):
         if not os.path.exists(p):
             raise SystemExit("no %s file at %s" % (what, p))
@@ -219,6 +250,17 @@ def append(path, action_path, outcome_path):
     # and thereby made to look checked.
     action = _read(action_path, "action-request.schema.json", "action")
     outcome = _read(outcome_path, "action-outcome.schema.json", "outcome")
+
+    # The outcome carries the digest of the request it was produced for.
+    # Without this check a `permit` could be filed beside an action that was
+    # denied, and the entry would look checked without being checked.
+    expected = _action_digest(action)
+    if outcome.get("action_digest") != expected:
+        raise SystemExit(
+            "the outcome was produced for a different action (it names %s, this "
+            "action digests to %s); refusing to record a decision beside a "
+            "request it was not made about"
+            % (str(outcome.get("action_digest"))[:16], expected[:16]))
 
     # Refuse to append to a log that is already broken, so a damaged chain is
     # not buried under later entries that verify against the damage.

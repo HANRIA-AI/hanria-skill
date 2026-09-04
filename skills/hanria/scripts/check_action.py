@@ -22,6 +22,7 @@ compare --- produces `deny` or `error`, never `permit`.
 """
 import argparse
 import datetime as _dt
+import hashlib
 import json
 import os
 import re
@@ -87,6 +88,17 @@ def _outcome(outcome, reason, mandate_ref=None, clause=None, note=None):
     if note:
         o["clause_note"] = note
     return o
+
+
+def action_digest(action):
+    """Digest of the request an outcome was produced for.
+
+    Without it an outcome is a loose JSON object, and anything recording a
+    decision would store a `permit` beside an action that was denied. The
+    record would then look checked without being checked.
+    """
+    canonical = json.dumps(action, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(b"hanria-action-v1" + canonical.encode("utf-8")).hexdigest()
 
 
 def _load(path, what):
@@ -488,7 +500,7 @@ def clause_matches(clause, op):
     return True, None
 
 
-def evaluate(mandate, action, now=None):
+def _evaluate(mandate, action, now=None):
     validate_mandate(mandate)
     ref = mandate["mandate_id"]
     try:
@@ -610,6 +622,13 @@ class _ArgParser(argparse.ArgumentParser):
     def error(self, message):
         print(json.dumps(_outcome("error", "usage: %s" % message), indent=2))
         raise SystemExit(3)
+
+
+def evaluate(mandate, action, now=None):
+    """Evaluate, then bind the outcome to the request it was produced for."""
+    outcome = _evaluate(mandate, action, now)
+    outcome["action_digest"] = action_digest(action)
+    return outcome
 
 
 def main():

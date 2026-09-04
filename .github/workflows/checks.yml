@@ -630,3 +630,42 @@ jobs:
             --action skills/hanria/examples/action.read-ticket.json --outcome /tmp/bogus_outcome.json; code=$?
           test "$code" = "3" || { echo "the recorder must validate the outcome it records, got $code"; exit 1; }
           echo "multi-currency accepted; recorder validates its inputs"
+      - name: An outcome cannot be recorded beside a different action
+        run: |
+          set +e
+          L=/tmp/bind.jsonl; rm -f $L $L.head $L.lock
+          python3 skills/hanria/scripts/check_action.py \
+            --mandate skills/hanria/examples/mandate.example.json \
+            --action skills/hanria/examples/action.read-ticket.json > /tmp/o_permit.json
+          python3 skills/hanria/scripts/record.py append --log $L \
+            --action skills/hanria/examples/action.read-home.json --outcome /tmp/o_permit.json; code=$?
+          test "$code" = "3" || { echo "a mismatched action/outcome pair must be refused, got $code"; exit 1; }
+          test ! -s $L || { echo "nothing should have been written"; exit 1; }
+          python3 skills/hanria/scripts/record.py append --log $L \
+            --action skills/hanria/examples/action.read-ticket.json --outcome /tmp/o_permit.json; code=$?
+          test "$code" = "0" || { echo "the matching pair must record, got $code"; exit 1; }
+      - name: Concurrent appends do not corrupt or lose entries
+        run: |
+          set +e
+          L=/tmp/conc.jsonl; rm -f $L $L.head $L.lock
+          python3 skills/hanria/scripts/check_action.py \
+            --mandate skills/hanria/examples/mandate.example.json \
+            --action skills/hanria/examples/action.read-ticket.json > /tmp/o.json
+          for i in $(seq 1 8); do
+            python3 skills/hanria/scripts/record.py append --log $L \
+              --action skills/hanria/examples/action.read-ticket.json --outcome /tmp/o.json &
+          done
+          wait
+          n=$(grep -c . $L)
+          test "$n" = "8" || { echo "expected 8 entries, got $n"; exit 1; }
+          python3 skills/hanria/scripts/record.py verify --log $L || { echo "chain must verify"; exit 1; }
+      - name: LIMITATIONS.md exists and is linked from every entry point
+        run: |
+          test -f LIMITATIONS.md || { echo "LIMITATIONS.md missing"; exit 1; }
+          for f in README.md SKILL.md skills/hanria/SKILL.md; do
+            grep -qi 'LIMITATIONS.md' "$f" || { echo "$f does not link LIMITATIONS.md"; exit 1; }
+          done
+          python3 -c "
+          import json
+          assert 'limitations' in json.load(open('hanria-skill.json')), 'manifest must link the limitations'
+          print('limitations linked from README, both SKILL.md copies and the manifest')"

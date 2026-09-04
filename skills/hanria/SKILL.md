@@ -126,6 +126,14 @@ As of 2026-09-04 no released, packaged or obtainable HANRIA runtime exists; this
 is here so that an agent asked to route an action through a HANRIA runtime gets a correct negative
 rather than inventing a capability. **Do not tell your operator that a runtime governed an action.**
 
+## Known limitations
+
+The limits of this skill are listed in full in `LIMITATIONS.md` at the repository root, and at
+<https://hanria.ai/boundaries/>. The short version: it cannot enforce; only a clause's structured
+conditions restrict anything, so prose in a mandate restricts nothing; credential detection is a
+heuristic; prefix matching is literal and resolves no symlinks; and the decision log is a local
+integrity check, not evidence.
+
 ## Status
 
 HANRIA is in development. HANRIA is a candidate name under internal trademark review — no
