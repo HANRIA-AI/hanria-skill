@@ -43,6 +43,9 @@ import sys
 TAG = b"hanria-skill-log-v1"
 GENESIS = "0" * 64
 
+# Exit codes, documented in the manifest and the skill text.
+OK, BROKEN, ERROR = 0, 1, 3
+
 
 def digest(previous_hex, body_bytes):
     h = hashlib.sha256()
@@ -187,6 +190,7 @@ def append(path, action_path, outcome_path):
         if not os.path.exists(p):
             raise SystemExit("no %s file at %s" % (what, p))
 
+
     with open(action_path, encoding="utf-8") as fh:
         action = json.load(fh)
     with open(outcome_path, encoding="utf-8") as fh:
@@ -195,14 +199,22 @@ def append(path, action_path, outcome_path):
     # Refuse to append to a log that is already broken, so a damaged chain is
     # not buried under later entries that verify against the damage.
     entries = read_log(path)
-    if entries:
+    pinned = read_head(path)
+
+    # Verify whenever there is anything to verify against -- entries, or a
+    # retained head. An empty log with a head recording entries is a truncated
+    # log, and starting a fresh chain over it would erase the evidence of that.
+    if entries or (pinned and (pinned.get("malformed") or pinned.get("count", 0) > 0)):
         import io
         import contextlib
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            if verify(path) != 0:
-                sys.stdout.write(buf.getvalue())
-                raise SystemExit("refusing to append: the existing log does not verify")
+            rc = verify(path)
+        if rc != 0:
+            sys.stdout.write(buf.getvalue())
+            return BROKEN
+
+    if entries:
         previous = entries[-1]["digest"]
         index = len(entries)
     else:

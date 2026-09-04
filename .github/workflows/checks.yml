@@ -19,22 +19,6 @@ jobs:
           echo "$out"
           test "$code" = "1" || { echo "expected exit 1 (absent), got $code"; exit 1; }
           echo "$out" | grep -q '"status": "absent"' || { echo "expected status absent"; exit 1; }
-      - name: A request carrying a credential is refused locally, never sent
-        run: |
-          set +e
-          out=$(python3 skills/hanria/scripts/request_action.py --file skills/hanria/examples/rejected-secret.json); code=$?
-          echo "$out"
-          test "$code" = "3" || { echo "expected exit 3, got $code"; exit 1; }
-          echo "$out" | grep -q 'NOT sent' || { echo "expected local refusal"; exit 1; }
-          echo "$out" | grep -q 'operation.parameters.api_key' || { echo "expected offending path named"; exit 1; }
-      - name: A clean request with no runtime does NOT fabricate an outcome
-        run: |
-          set +e
-          out=$(python3 skills/hanria/scripts/request_action.py --file skills/hanria/examples/read-file.json); code=$?
-          echo "$out"
-          test "$code" = "3" || { echo "expected exit 3, got $code"; exit 1; }
-          echo "$out" | grep -q 'no HANRIA runtime is installed' || exit 1
-          echo "$out" | grep -qv '"outcome": "permit"' || { echo "must never synthesize permit"; exit 1; }
       - name: plugin.json conforms to Agent Plugins 1.0.0
         run: |
           python3 - <<'PY'
@@ -261,3 +245,128 @@ jobs:
           grep -qi 'runtime client\|Request a governed action through a local HANRIA runtime' README.md \
             && { echo "README retains pre-rewrite runtime-client framing"; exit 1; }
           echo "README and SKILL.md consistent"
+      - name: Schema-invalid mandates and requests never permit
+        run: |
+          python3 - <<'PY'
+          import json, subprocess, sys
+          M = 'skills/hanria/examples/mandate.example.json'
+          A = 'skills/hanria/examples/action.read-ticket.json'
+          base_a, base_m = json.load(open(A)), json.load(open(M))
+          def mut(doc, **kw):
+              d = json.loads(json.dumps(doc)); d.update(kw); return d
+          cases = []
+          cases.append(('request schema_version', 'a', mut(base_a, schema_version='WRONG')))
+          cases.append(('requested_by null', 'a', mut(base_a, requested_by=None)))
+          cases.append(('justification null', 'a', mut(base_a, justification=None)))
+          cases.append(('justification blank', 'a', mut(base_a, justification='   ')))
+          cases.append(('mandate_id null', 'm', mut(base_m, mandate_id=None)))
+          cases.append(('purpose null', 'm', mut(base_m, purpose=None)))
+          cases.append(('requires_human string', 'm', mut(base_m, requires_human='')))
+          m = json.loads(json.dumps(base_m)); m['clauses'][0]['id'] = ''
+          cases.append(('empty clause id', 'm', m))
+          m = json.loads(json.dumps(base_m)); m['clauses'][0]['note'] = {'x': 1}
+          cases.append(('object clause note', 'm', m))
+          bad = []
+          for name, which, doc in cases:
+              if which == 'a':
+                  json.dump(doc, open('/tmp/ca.json', 'w'))
+                  args = ['--mandate', M, '--action', '/tmp/ca.json']
+              else:
+                  json.dump(doc, open('/tmp/cm.json', 'w'))
+                  args = ['--mandate', '/tmp/cm.json', '--action', A]
+              r = subprocess.run(['python3', 'skills/hanria/scripts/check_action.py'] + args,
+                                 capture_output=True, text=True)
+              try:
+                  outcome = json.loads(r.stdout)['outcome']
+              except Exception:
+                  outcome = 'NO-JSON'
+              print('%-24s -> %s (exit %d)' % (name, outcome, r.returncode))
+              if outcome == 'permit' or r.returncode == 0:
+                  bad.append(name)
+          assert not bad, 'these permitted and must not: %s' % bad
+          print('all schema-invalid inputs failed closed')
+          PY
+      - name: A tiered mandate is accepted, not rejected as unreachable
+        run: |
+          set +e
+          python3 - <<'PY'
+          import json
+          json.dump({"schema_version":"0.2-draft","mandate_id":"tiered","purpose":"tiers",
+            "default":"deny","clauses":[
+              {"id":"small","effect":"permit","match":{"kind":["transaction"],"verb":["refund"],
+                "max_amount":{"value":"50.00","currency":"USD"}}},
+              {"id":"medium","effect":"escalate","match":{"kind":["transaction"],"verb":["refund"],
+                "max_amount":{"value":"500.00","currency":"USD"}}}]},
+            open('/tmp/tiered.json','w'))
+          def req(v):
+              json.dump({"schema_version":"0.1-draft","requested_by":{"agent":"x"},
+                "operation":{"kind":"transaction","verb":"refund","target":"o1",
+                  "amount":{"value":v,"currency":"USD"}},"justification":"t"},
+                open('/tmp/r_%s.json' % v,'w'))
+          for v in ("20.00","100.00","900.00"): req(v)
+          PY
+          for pair in "20.00 0" "100.00 2" "900.00 1"; do
+            set -- $pair
+            python3 skills/hanria/scripts/check_action.py --mandate /tmp/tiered.json --action /tmp/r_$1.json
+            code=$?
+            test "$code" = "$2" || { echo "tiered USD $1: want exit $2, got $code"; exit 1; }
+          done
+          echo "tiered mandate behaves as written"
+      - name: append refuses a log truncated to empty against a retained head
+        run: |
+          set +e
+          L=/tmp/stale.jsonl; rm -f $L $L.head
+          python3 skills/hanria/scripts/check_action.py \
+            --mandate skills/hanria/examples/mandate.example.json \
+            --action skills/hanria/examples/action.read-ticket.json > /tmp/o.json
+          for i in 1 2 3; do
+            python3 skills/hanria/scripts/record.py append --log $L \
+              --action skills/hanria/examples/action.read-ticket.json --outcome /tmp/o.json
+          done
+          : > $L
+          python3 skills/hanria/scripts/record.py append --log $L \
+            --action skills/hanria/examples/action.read-ticket.json --outcome /tmp/o.json; code=$?
+          test "$code" = "1" || { echo "append over a truncated log must return 1, got $code"; exit 1; }
+          test ! -s $L || { echo "append must not have written a new genesis entry"; exit 1; }
+          python3 -c "import json;assert json.load(open('/tmp/stale.jsonl.head'))['count']==3"
+          echo "append refused and left the head intact"
+      - name: A broken chain is exit 1 from append as well as verify
+        run: |
+          set +e
+          L=/tmp/brk.jsonl; rm -f $L $L.head
+          for a in read-ticket read-home refund; do
+            python3 skills/hanria/scripts/check_action.py \
+              --mandate skills/hanria/examples/mandate.example.json \
+              --action skills/hanria/examples/action.$a.json > /tmp/o_$a.json
+            python3 skills/hanria/scripts/record.py append --log $L \
+              --action skills/hanria/examples/action.$a.json --outcome /tmp/o_$a.json
+          done
+          python3 -c "import json; e=[json.loads(l) for l in open('/tmp/brk.jsonl') if l.strip()]; e[1]['body']['outcome']['outcome']='permit'; open('/tmp/brk.jsonl','w').write(chr(10).join(json.dumps(x,sort_keys=True,separators=(',',':')) for x in e)+chr(10))"
+          python3 skills/hanria/scripts/record.py verify --log $L; test "$?" = "1" || { echo "verify must return 1"; exit 1; }
+          python3 skills/hanria/scripts/record.py append --log $L \
+            --action skills/hanria/examples/action.read-ticket.json --outcome /tmp/o_read-ticket.json; code=$?
+          test "$code" = "1" || { echo "append onto a broken chain must return 1, got $code"; exit 1; }
+      - name: No surface asserts or reserves rights in the name
+        run: |
+          # First character bracketed so this line does not match its own pattern.
+          ! grep -rIn --exclude-dir=.git -E '[g]rants no rights in the name HANRIA|[n]o licence to use the name|[d]o not present it as HANRIA' . \
+            || { echo "a surface asserts or reserves rights in the name"; exit 1; }
+          python3 -c "
+          import re,sys
+          t=re.sub(r'\s+',' ',open('TRADEMARK.md').read())
+          assert 'No registration, completed clearance, or exclusive rights are claimed' in t, \
+              'TRADEMARK.md must state that no rights are claimed'
+          print('TRADEMARK.md states that no rights are claimed')
+          "
+      - name: Availability prohibitions are scoped to the runtime, not to HANRIA
+        run: |
+          python3 - <<'PY'
+          import json
+          d = json.load(open('hanria-skill.json'))
+          never = ' | '.join(d['agent_obligations']['never'])
+          assert 'describe HANRIA as available' not in never, \
+              'the prohibition must name the runtime, not HANRIA, which contradicts the released skill'
+          assert d['runtime_required'] is False
+          assert 'request' not in d['entrypoints'], 'the removed runtime client must not be advertised'
+          print('availability prohibitions correctly scoped')
+          PY

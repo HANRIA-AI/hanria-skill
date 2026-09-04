@@ -57,15 +57,15 @@
     "outcome": "https://hanria.ai/skill/schema/action-outcome.schema.json"
   },
   "agent_obligations": {
-    "on_absent": "Report that no runtime is present. Checking and recording still work; never describe a checked action as enforced or runtime-governed.",
     "on_deny": "Stop. Do not attempt the operation by another path. Report the denial and its reason.",
     "on_escalate": "Report that approval is pending. Do not proceed and do not retry in a loop.",
     "never": [
       "place a credential, secret, key, or token in a request",
       "describe an action as HANRIA-governed when no runtime answered",
-      "describe HANRIA as available, released, audited, certified, or compliant",
+      "describe the enforcement runtime as available or released, or describe HANRIA as audited, certified, or compliant",
       "describe a log entry as a receipt, attestation, or evidence to a third party"
-    ]
+    ],
+    "on_error": "Treat as deny. Report the text. Never proceed on an error."
   },
   "not_claimed": [
     "that this skill prevents, blocks, or enforces anything",

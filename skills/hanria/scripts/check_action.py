@@ -27,7 +27,8 @@ import re
 import sys
 from decimal import Decimal, InvalidOperation
 
-SCHEMA_VERSION = "0.2-draft"
+SCHEMA_VERSION = "0.2-draft"          # mandate
+REQUEST_SCHEMA_VERSION = "0.1-draft"  # action request
 
 # Field names that suggest a secret has been placed in a request. A request is
 # refused rather than sanitized: stripping a credential would hide the fact that
@@ -180,10 +181,25 @@ def _str_list(value, what):
     return value
 
 
+def _nonempty_str(value, what):
+    if not isinstance(value, str) or not value.strip():
+        raise CheckError("%s must be a non-empty string, not %r" % (what, value))
+    return value
+
+
 def validate_mandate(mandate):
     for field in ("schema_version", "mandate_id", "purpose", "default", "clauses"):
         if field not in mandate:
             raise CheckError("mandate is missing required field %r" % field)
+    # Presence is not validity. A field present but null, empty or of the wrong
+    # type is a malformed mandate, and a malformed mandate must not be evaluated.
+    _nonempty_str(mandate["mandate_id"], "mandate_id")
+    _nonempty_str(mandate["purpose"], "purpose")
+    if "issued_by" in mandate:
+        _nonempty_str(mandate["issued_by"], "issued_by")
+    if "requires_human" in mandate and not isinstance(mandate["requires_human"], list):
+        raise CheckError("requires_human must be a list, not %s"
+                         % type(mandate["requires_human"]).__name__)
     unknown = set(mandate) - MANDATE_KEYS
     if unknown:
         # Fail closed on anything unrecognized. An operator who writes a
@@ -209,6 +225,10 @@ def validate_mandate(mandate):
         for field in ("id", "effect", "match"):
             if field not in clause:
                 raise CheckError("clause %d is missing %r" % (i, field))
+        _nonempty_str(clause["id"], "clause %d id" % i)
+        if "note" in clause and not isinstance(clause["note"], str):
+            raise CheckError("clause %r note must be a string, not %s"
+                             % (clause["id"], type(clause["note"]).__name__))
         if clause["id"] in seen:
             raise CheckError("duplicate clause id %r" % clause["id"])
         seen.add(clause["id"])
@@ -292,6 +312,19 @@ def _overlaps(earlier, later):
         if not set(e["counterparty"]) & set(l["counterparty"]):
             return False
 
+    # A bounded earlier clause leaves everything above its ceiling to the
+    # clauses after it, which is how a tiered policy is written: permit small
+    # refunds, escalate larger ones, deny the rest. The later clause is reached
+    # for exactly the amounts the earlier one declines, so it is not dead.
+    if "max_amount" in e:
+        if "max_amount" not in l:
+            return False
+        ec, lc = e["max_amount"], l["max_amount"]
+        if ec["currency"] != lc["currency"]:
+            return False
+        if to_decimal(lc["value"], "ceiling") > to_decimal(ec["value"], "ceiling"):
+            return False
+
     return True
 
 
@@ -369,6 +402,18 @@ def evaluate(mandate, action, now=None):
         if now >= expiry:
             return _outcome("deny", "the mandate expired at %s"
                             % mandate["not_valid_after"], ref)
+
+    if action.get("schema_version") != REQUEST_SCHEMA_VERSION:
+        return _outcome("deny", "the request declares schema_version %r; this "
+                        "evaluator reads %r only"
+                        % (action.get("schema_version"), REQUEST_SCHEMA_VERSION), ref)
+    if not isinstance(action.get("requested_by"), dict) or \
+            not isinstance(action["requested_by"].get("agent"), str) or \
+            not action["requested_by"]["agent"].strip():
+        return _outcome("deny", "the request does not name a requesting agent", ref)
+    if not isinstance(action.get("justification"), str) or \
+            not action["justification"].strip():
+        return _outcome("deny", "the request carries no justification", ref)
 
     missing = [f for f in ACTION_REQUIRED if f not in action]
     if missing:

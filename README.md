@@ -27,7 +27,7 @@ of the decision.** Free, MIT, Python 3 standard library only. Runs locally with 
 npx skills add HANRIA-AI/hanria-skill
 ```
 
-Or clone — there is nothing to build.
+Or clone it — there is nothing to build.
 
 ## Use
 
@@ -43,154 +43,102 @@ python3 scripts/record.py append \
 python3 scripts/record.py verify --log decisions.jsonl
 ```
 
-Exit codes: `0` permit, `1` deny, `2` escalate, `3` error.
+`check_action.py` exits `0` permit, `1` deny, `2` escalate, `3` error.
+`record.py` exits `0` ok, `1` chain broken, `3` error.
 
-The worked example exercises every path: `action.read-ticket.json` permits, `action.read-home.json`
-and `action.secrets-dir.json` are denied by an explicit clause, `action.refund.json` escalates
-because the mandate reserves transactions for a person, `action.refund-too-large.json` falls past its
-clause ceiling to the default, `action.traversal.json` is refused for containing a parent-directory
-segment, and `rejected-secret.json` is refused for carrying a credential.
+The worked example exercises every path: `action.read-ticket.json` permits;
+`action.read-home.json` and `action.secrets-dir.json` are denied by an explicit clause;
+`action.refund.json` escalates, because the mandate reserves transactions for a person;
+`action.refund-too-large.json` falls past its clause ceiling to the default;
+`action.traversal.json` is refused for containing a parent-directory segment; and
+`rejected-secret.json` is refused for carrying a credential.
 
 `mandate.shadowed-denial.json` is deliberately broken: its denial sits *after* the permit it was
 meant to carve out of, so with first-match-wins it could never run. The checker refuses that mandate
 rather than evaluating against a restriction that does nothing.
 
+## Writing a mandate
+
+A mandate states a purpose in your own words, then clauses. Clauses are evaluated in order and the
+first match decides; anything unmatched takes the `default`, which is `deny` or `escalate` — never
+`permit`, because a mandate that permits by default cannot express a limit.
+
+**Only the structured `match` conditions are evaluated.** `purpose`, `justification` and a clause's
+`note` are for the human who reviews this later. Writing "never touch payroll" in `purpose` restricts
+nothing; it has to be a clause. This is the easiest way to believe you have written a limit that does
+not exist.
+
+Three things worth doing:
+
+- **Put denials above the permits they carve out of.** First-match-wins means a denial written after
+  a broader permit never runs. The checker refuses a mandate where that has happened, but the habit
+  is better than the error.
+- **Set `not_valid_after`.** An unbounded mandate lets delegated authority outlive the task it was
+  granted for.
+- **Use `requires_human`** for the kinds you never want decided by a model — typically
+  `credential_use`, `transaction` and `administrative`. It overrides a permitting clause, so a
+  ceiling narrows what may be asked for without removing you from the decision.
+
+Tiered policies work: permit refunds up to one ceiling, escalate up to a higher one, deny the rest.
+A bounded clause leaves everything above its ceiling to the clauses after it.
+
 ## What it guarantees, and what it does not
 
-**Fail-closed.** An expired mandate, a malformed or unrecognized one, a request missing required
-fields, an unknown operation kind, a non-finite or negative amount, or any unforeseen internal fault
-resolves to `deny` or `error`. No input path returns `permit` by accident. A mandate carrying a
-condition the evaluator does not implement is refused rather than ignored — an unimplemented
-restriction would otherwise silently widen the clause it was meant to narrow.
+**Fail-closed.** An expired mandate, a malformed or unrecognized one, a request that is not the shape
+it claims to be, an unknown operation kind, a non-finite or negative amount, or any unforeseen
+internal fault resolves to `deny` or `error`. A mandate carrying a condition the evaluator does not
+implement is refused rather than ignored — an unimplemented restriction would otherwise silently
+widen the clause it was meant to narrow.
 
 **Credential detection is a heuristic.** It recognizes common credential field names and value shapes
 and refuses the request rather than sanitizing it, so the attempt stays visible. It cannot be
 complete: a credential in an unremarkably-named field holding an unremarkable-looking value will
 pass. It guards against accident, not intent.
 
+**Prefix matching is literal.** It does not resolve symlinks or normalize paths, so it constrains the
+string, not the file the string ends up pointing at. Targets containing a parent-directory segment
+are refused outright, but a symlink under a permitted prefix is not something this can see.
+
 **The log detects alteration**, and deletion of any entry followed by another. It cannot detect
 truncation on its own — a shortened chain has nothing left to disagree with — so `append` maintains a
 separate `<log>.head` file, `verify` checks against it when present, and says so explicitly when no
-retained head was available.
+retained head was available. Someone who can rewrite both files can still produce a consistent pair.
 
 **The log is not evidence.** No signature, no published format, no independent verifier: anyone who
-can write the file can rebuild it. It is a local integrity check, not an attestation.
+can write the file can rebuild it. It is a local integrity check, not an attestation, and not proof
+to anyone else that an action was authorized.
 
-Every one of these is asserted in CI, not merely documented.
+Each of these is asserted in [`.github/workflows/checks.yml`](.github/workflows/checks.yml), which
+runs on every push, rather than only documented here.
 
-## Install
+## Layout
 
-**Via any Agent Plugins 1.0.0 or skills-registry client** — resolves straight from this repository, no submission or listing required:
-
-```bash
-npx skills add HANRIA-AI/hanria-skill
-```
-
-That installs for Claude Code, Codex, Cursor, GitHub Copilot, Amp, Antigravity and a dozen other runtimes.
-
-**Or clone it.** No dependencies beyond Python 3.9+. Nothing here makes a network call.
-
-```bash
-git clone https://github.com/HANRIA-AI/hanria-skill.git
-cd hanria-skill
-python3 skills/hanria/scripts/detect_runtime.py
-```
-
-For agent frameworks that load skills from a directory, point them at this repository root. `SKILL.md`
-carries the agent-facing instructions and frontmatter.
-
-## Use
-
-**1. Check for a runtime.** Read-only, no network.
-
-```bash
-python3 skills/hanria/scripts/detect_runtime.py
-```
-
-| Exit | Status | What the agent must do |
-|---|---|---|
-| 0 | `present` | Continue |
-| 1 | `absent` | **Report unavailability and stop.** Do not simulate a decision |
-| 2 | `error` | Treat as absent. Report the error text |
-
-**2. Build a request** against [`skills/hanria/schema/action-request.schema.json`](skills/hanria/schema/action-request.schema.json).
-See [`skills/hanria/examples/`](skills/hanria/examples/). A request describes an operation in typed form and **never contains a
-credential, secret, key, or token.**
-
-**3. Submit it.**
-
-```bash
-python3 skills/hanria/scripts/request_action.py --file skills/hanria/examples/read-file.json
-```
-
-| Exit | Outcome | Obligation |
-|---|---|---|
-| 0 | `permit` | Report the receipt reference. Do not re-perform the operation yourself |
-| 1 | `deny` | **Stop. Do not route around it.** Report the denial and its reason |
-| 2 | `escalate` | Report that approval is pending. Do not proceed or retry in a loop |
-| 3 | `error` | Report it. Do not retry with a broadened request |
-
-**A denial is a result, not an obstacle.** Attempting the operation by another path after a `deny`
-defeats the only thing this system does.
-
-## Safety properties this client actually has
-
-These are enforced by the code in this repository, not merely documented:
-
-- **Refuses to leak credentials.** `request_action.py` scans a request for credential-shaped keys
-  (`credential`, `secret`, `private_key`, `token`, `password`, `api_key`, `bearer`) and refuses to send
-  it, naming the offending JSON path. Tested — see [`skills/hanria/examples/rejected-secret.json`](skills/hanria/examples/rejected-secret.json).
-- **No network calls.** Local Unix domain socket only.
-- **Never fabricates an outcome.** With no runtime present it returns `error` with an explicit
-  instruction to stop, not a synthetic `permit`.
-- **No credential handling of any kind.** It never reads, holds, or transmits one.
-
-## What the concept is
-
-A proposed local runtime that would sit between an agent and a protected operation:
-
-1. **Describe** — the agent submits a typed description of a proposed operation rather than receiving
-   unrestricted tool access.
-2. **Evaluate** — the proposal is checked against an owner-defined mandate: purpose, scope, limits,
-   duration, approval conditions.
-3. **Context** — what context a decision should depend on, and what it proves, is an **open design
-   question**. Undecided and unspecified.
-4. **Mediate** — where permitted, the operation runs through the boundary instead of releasing the
-   credential.
-5. **Record** — a structured record links proposal, inputs, decision, operation, and outcome.
-
-## Links
-
-- **[hanria.dev](https://hanria.dev/)** — developer surface: install, schemas, outcome obligations
-- **[hanria.ai](https://hanria.ai/)** — the concept, boundaries and FAQ
-  · [日本語](https://hanria.ai/ja/) · [中文](https://hanria.ai/zh/) · [한국어](https://hanria.ai/ko/)
-- [llms.txt](https://hanria.ai/llms.txt) · [llms-full.txt](https://hanria.ai/llms-full.txt) · [agent card](https://hanria.ai/.well-known/hanria.json)
+- `SKILL.md` — agent-facing instructions, at the repository root and at `skills/hanria/`
+- `plugin.json` — Agent Plugins 1.0.0 manifest
+- `hanria-skill.json` — machine-readable entry points, obligations and non-claims
+- `skills/hanria/schema/` — mandate, action-request and action-outcome schemas (drafts)
+- `skills/hanria/examples/` — a worked mandate and requests covering every outcome
+- `skills/hanria/scripts/` — `check_action.py`, `record.py`, `detect_runtime.py`
 
 ## Boundaries
 
-HANRIA is in development. No capability is released or offered for use. The name is a candidate under
-internal trademark review — **no registration, completed clearance, or exclusive rights are claimed.**
-No third-party security audit, penetration test, certification, product attestation, or regulatory
-approval is claimed. No receipt format, public verifier, interoperability standard, or third-party
-acceptance commitment has been published. HANRIA would not hold funds, digital assets, or customer
-keys, and is not a bank, wallet, exchange, money transmitter, custodian, or regulated financial
-service. Nothing here prevents, detects, reverses, or indemnifies unauthorized, fraudulent, mistaken,
-or loss-causing activity.
+The skill is released and usable. The **enforcement runtime is not** — no capability of it is
+released, packaged, downloadable, or offered for use, and no release date is announced or implied.
 
-## Packaging
+HANRIA is a candidate name under internal trademark review. No registration, completed clearance, or
+exclusive rights are claimed. No third-party security audit, certification, or regulatory approval is
+claimed. No record format, public verifier, interoperability standard, or third-party acceptance
+commitment has been published. Nothing here holds funds, digital assets, or keys.
 
-This repository is an **[Agent Plugins 1.0.0](https://agent-plugins.org/) plugin** — `plugin.json` at the
-root, the skill under `skills/hanria/`. Agent Plugins is the vendor-neutral packaging standard published by
-Vercel with AWS, Anysphere, GitHub, Microsoft and OpenAI, so a conformant client can load this without
-knowing anything HANRIA-specific.
+Full statement: <https://hanria.ai/boundaries/>
 
-`SKILL.md` is also kept at the repository root so registry clients that resolve a bare `owner/repo` continue
-to work. CI asserts both paths exist, because breaking either silently breaks a distribution channel.
+## Links
+
+- <https://hanria.ai/> — overview, and the same limits in 日本語 / 中文 / 한국어
+- <https://hanria.dev/> — developer surface
+- <https://hanria.ai/llms.txt> — the agent-facing summary
 
 ## Licence
 
-[MIT](LICENSE). The licence covers this client code. It grants no rights in the name HANRIA.
-
-## Licence
-
-MIT — see [LICENSE](LICENSE). The licence covers the code and grants no rights in the name HANRIA; see [TRADEMARK.md](TRADEMARK.md).
+MIT — see [LICENSE](LICENSE). It is a copyright licence and, like every MIT licence, does not convey
+trademark rights; see [TRADEMARK.md](TRADEMARK.md).
