@@ -614,7 +614,7 @@ jobs:
           python3 -c "open('/tmp/huge.json','w').write('{' + ' '*(3*1048576) + '}')"
           out=$(python3 $S/check_action.py --mandate /tmp/huge.json --action $A); code=$?
           test "$code" = "3" || { echo "a 3 MiB mandate must exit 3, got $code"; exit 1; }
-          echo "$out" | grep -q 'the bound is 1048576 bytes' || { echo "a 3 MiB mandate must be refused by the size bound"; exit 1; }
+          echo "$out" | grep -q 'is 1048577 bytes; the bound is 1048576 bytes' || { echo "a 3 MiB mandate must be refused after reading exactly bound-plus-one, not in full"; echo "$out"; exit 1; }
           python3 -c "open('/tmp/deep.json','w').write('['*65 + ']'*65)"
           out=$(python3 $S/check_action.py --mandate $M --action /tmp/deep.json); code=$?
           test "$code" = "3" || { echo "65-deep request must exit 3, got $code"; exit 1; }
@@ -633,7 +633,7 @@ jobs:
           python3 -c "open('/tmp/long.log','w').write('{' + chr(34) + 'a' + chr(34) + ': ' + chr(34) + 'x'*(2*1048576) + chr(34) + '}' + chr(10))"; rm -f /tmp/long.log.head
           out=$(python3 $S/record.py verify --log /tmp/long.log 2>&1); code=$?
           test "$code" = "3" || { echo "an over-long log line must be an error (3), got $code"; echo "$out"; exit 1; }
-          echo "$out" | grep -q 'the bound is 1048576 bytes' || { echo "an over-long log line must be refused by the size bound"; echo "$out"; exit 1; }
+          echo "$out" | grep -q 'is longer than 1048576 bytes' || { echo "an over-long log line must be refused before the rest of it is read"; echo "$out"; exit 1; }
           python3 -c "open('/tmp/hb.log','w').write('')"; python3 -c "open('/tmp/hb.log.head','w').write('{' + ' '*(3*1048576) + '}')"
           out=$(python3 $S/record.py verify --log /tmp/hb.log 2>&1); code=$?
           test "$code" = "1" || { echo "a head file past the bound must be treated as malformed (broken, exit 1), got $code"; echo "$out"; exit 1; }

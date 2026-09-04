@@ -81,13 +81,15 @@ this skill gives you enforcement, that claim is false.**
 
 ## Robustness
 
-- **Document size and nesting depth are validated bounds, not resource limits.** Any document this
-  layer reads — a mandate, a request, a log line, or the log's head file — is refused by name with
-  `error` (exit 3) if it exceeds 1,048,576 bytes or nests more than 64 levels, before it is parsed.
-  The readers stop at the bound plus one character, so a file far larger than the bound is never
-  read in full. Both numbers are published in `_schema.py`. They bound what the skill reads and
-  parses; they make no judgment about what a document that size means. A line in the log that is
-  longer than the bound is refused before the rest of it is read.
+- **Document size and nesting depth are validated bounds, not resource limits.** A mandate, a
+  request, or a log line is refused by name with `error` (exit 3) if it exceeds 1,048,576 bytes or
+  nests more than 64 levels, before it is parsed. The log's head file is read under the same bounds
+  but reported differently: a head past either bound is treated as an unreadable pin, so `verify`
+  reports the chain `broken` (exit 1) rather than naming the bound, the same as any other malformed
+  head. Every reader stops at the bound plus one character, so a file far larger than the bound is
+  never read in full, and a log line longer than the bound is refused before the rest of it is read.
+  Both numbers are published in `_schema.py`. They bound what the skill reads and parses; they make
+  no judgment about what a document that size means.
 - **The unreachable-clause check compares clauses pairwise.** It catches an earlier clause that
   decides requests a later restricting clause was written to cover. It does not reason about three or
   more clauses combining to make a fourth unreachable, and it compares conditions structurally rather
