@@ -597,6 +597,37 @@ jobs:
           test "$code" = "3" || { echo "a credential in the mandate must be refused, got $code"; exit 1; }
           echo "$out" | grep -q 'Bearer abc' && { echo "the credential was echoed into the outcome"; exit 1; }
           echo "mandate credential refused and not echoed"
+      - name: A deny prefix is not bypassed by Unicode normalization form
+        run: |
+          set +e
+          S=skills/hanria/scripts
+          python3 - <<'PY'
+          import json, copy, unicodedata
+          M=json.load(open('skills/hanria/examples/mandate.example.json'))
+          A=json.load(open('skills/hanria/examples/action.read-ticket.json'))
+          nfc='/data/s\u00e9crets/'; nfd=unicodedata.normalize('NFD', nfc); assert nfc != nfd
+          m=copy.deepcopy(M); m['clauses']=[
+            {"id":"deny-secrets","effect":"deny","match":{"kind":["file"],"target_prefix":[nfc]}},
+            {"id":"permit-data","effect":"permit","match":{"kind":["file"],"verb":["read"],"target_prefix":["/data/"]}}]
+          a=copy.deepcopy(A); a['operation']['target']=nfd+'x.txt'
+          json.dump(m,open('/tmp/nfc-mandate.json','w')); json.dump(a,open('/tmp/nfd-action.json','w'))
+          # mirror: prefix in NFD, target in NFC, permit expected
+          m2=copy.deepcopy(M); m2['clauses']=[{"id":"permit-nfd","effect":"permit","match":{"kind":["file"],"verb":["read"],"target_prefix":[nfd]}}]
+          a2=copy.deepcopy(A); a2['operation']['target']=nfc+'x.txt'
+          json.dump(m2,open('/tmp/nfd-mandate.json','w')); json.dump(a2,open('/tmp/nfc-action.json','w'))
+          # fullwidth solidus must NOT be folded into a separator
+          m3=copy.deepcopy(M); m3['clauses']=[{"id":"permit-data","effect":"permit","match":{"kind":["file"],"verb":["read"],"target_prefix":["/data/"]}}]
+          a3=copy.deepcopy(A); a3['operation']['target']='\uff0fdata\uff0fx.txt'
+          json.dump(m3,open('/tmp/fw-mandate.json','w')); json.dump(a3,open('/tmp/fw-action.json','w'))
+          PY
+          out=$(python3 $S/check_action.py --mandate /tmp/nfc-mandate.json --action /tmp/nfd-action.json); code=$?
+          test "$code" = "1" || { echo "NFD target under an NFC deny prefix must be denied, got $code"; echo "$out"; exit 1; }
+          echo "$out" | grep -q '"clause": "deny-secrets"' || { echo "the deny clause must be the one that applied"; echo "$out"; exit 1; }
+          out=$(python3 $S/check_action.py --mandate /tmp/nfd-mandate.json --action /tmp/nfc-action.json); code=$?
+          test "$code" = "0" || { echo "NFC target under an NFD permit prefix must be permitted, got $code"; echo "$out"; exit 1; }
+          out=$(python3 $S/check_action.py --mandate /tmp/fw-mandate.json --action /tmp/fw-action.json); code=$?
+          test "$code" = "1" || { echo "a fullwidth solidus must not be folded into a path separator, got $code"; echo "$out"; exit 1; }
+          echo "normalization form cannot bypass a deny prefix; compatibility forms are not folded"
       - name: Document size and nesting are validated bounds, refused by name
         run: |
           set +e

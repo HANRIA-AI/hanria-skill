@@ -35,9 +35,13 @@ this skill gives you enforcement, that claim is false.**
   without a trailing `/` are refused because their literal reading widens authority, but that
   addresses the shapes we know about, not the general problem.
 
-- **Unicode normalization is not applied.** A prefix written in NFC will not match a target in NFD
-  even when the two look identical. The result is a denial rather than a permission, so it fails in
-  the safe direction, but a mandate can silently fail to match paths you expected it to cover.
+- **Prefixes and targets are compared after canonical composition (NFC), and nothing more.** Until
+  this file's third revision they were compared literally, and the entry here claimed that failed
+  safe. It did not: a deny prefix written in one normalization form failed to match a target written
+  in the other, and first-match-wins fell through to a broader permit beneath it. Both sides are now
+  composed before comparison, so that pair matches. Compatibility forms are not folded: a fullwidth
+  solidus is not a separator to any filesystem, and folding it would invent matches. What a given
+  filesystem does with the bytes it is handed is still outside this layer.
 
 - **A mandate is not authenticated.** `issued_by` is free text. Nothing establishes who wrote a
   mandate, and this skill has no notion of a signature or an authority that issued one.

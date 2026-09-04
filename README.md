@@ -103,7 +103,7 @@ and refuses the request rather than sanitizing it, so the attempt stays visible.
 complete: a credential in an unremarkably-named field holding an unremarkable-looking value will
 pass. It guards against accident, not intent.
 
-**Prefix matching is literal.** It does not resolve symlinks or normalize paths, so it constrains the
+**Prefix matching is literal, after Unicode canonical composition (NFC).** It does not resolve symlinks or canonicalize paths, so it constrains the
 string, not the file the string ends up pointing at. Targets containing a parent-directory segment
 are refused, an empty prefix is refused (it would match everything), and a URL prefix with no path
 boundary is refused (`https://trusted.example` would also match `https://trusted.example.evil.test`).

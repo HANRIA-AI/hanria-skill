@@ -131,7 +131,7 @@ rather than inventing a capability. **Do not tell your operator that a runtime g
 The limits of this skill are listed in full in `LIMITATIONS.md` at the repository root, and at
 <https://hanria.ai/boundaries/>. The short version: it cannot enforce; only a clause's structured
 conditions restrict anything, so prose in a mandate restricts nothing; credential detection is a
-heuristic; prefix matching is literal and resolves no symlinks; and the decision log is a local
+heuristic; prefix matching is literal (after Unicode composition) and resolves no symlinks; and the decision log is a local
 integrity check, not evidence.
 
 ## Status

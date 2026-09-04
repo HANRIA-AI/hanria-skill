@@ -29,6 +29,7 @@ import re
 import sys
 from decimal import Decimal, InvalidOperation
 from urllib.parse import unquote as _unquote
+import unicodedata
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _schema  # noqa: E402
@@ -193,6 +194,21 @@ def to_decimal(value, what):
 
 
 MATCH_KEYS = {"kind", "verb", "target_prefix", "counterparty", "max_amount"}
+
+
+def _nfc(text):
+    """Canonical composition for prefix comparison.
+
+    A prefix and a target that differ only in Unicode normalization form name
+    the same string to a reader and, on most filesystems, the same file. If
+    they were compared literally, a deny prefix written in one form would fail
+    to match a target written in the other, and first-match-wins would fall
+    through to whatever broader permit sits below it. That is the unsafe
+    direction, so both sides are composed before comparison. Compatibility
+    forms (NFKC) are deliberately not folded: a fullwidth solidus is not a
+    path separator to any filesystem, and folding it would invent matches.
+    """
+    return unicodedata.normalize("NFC", text)
 CLAUSE_KEYS = {"id", "effect", "note", "match"}
 MANDATE_KEYS = {"schema_version", "mandate_id", "issued_by", "purpose",
                 "not_valid_after", "default", "requires_human", "clauses"}
@@ -416,7 +432,7 @@ def _overlaps(earlier, later):
 
     if "target_prefix" in e and "target_prefix" in l:
         # Two prefixes can both apply only if one extends the other.
-        if not any(lp.startswith(ep) or ep.startswith(lp)
+        if not any(_nfc(lp).startswith(_nfc(ep)) or _nfc(ep).startswith(_nfc(lp))
                    for ep in e["target_prefix"] for lp in l["target_prefix"]):
             return False
 
@@ -495,9 +511,9 @@ def clause_matches(clause, op):
             return False, "verb %r not in %s" % (op.get("verb"), m["verb"])
 
     if "target_prefix" in m:
-        target = op.get("target") or ""
-        if not any(target.startswith(p) for p in m["target_prefix"]):
-            return False, "target %r matches no permitted prefix" % target
+        target = _nfc(op.get("target") or "")
+        if not any(target.startswith(_nfc(p)) for p in m["target_prefix"]):
+            return False, "target %r matches no permitted prefix" % op.get("target")
 
     if "counterparty" in m:
         if op.get("counterparty") not in m["counterparty"]:
