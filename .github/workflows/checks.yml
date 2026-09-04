@@ -506,20 +506,31 @@ jobs:
         run: |
           python3 - <<'PY'
           import ast
+          # Full dotted names, so the check can name what actually opens a
+          # connection. urllib.parse is string manipulation and does no I/O;
+          # banning the whole urllib package would be coarse enough to be wrong.
+          BANNED = {'socket', 'ssl', 'asyncio', 'requests', 'ftplib', 'smtplib',
+                    'telnetlib', 'poplib', 'imaplib', 'nntplib', 'subprocess',
+                    'http', 'http.client', 'urllib.request', 'urllib.error',
+                    'xmlrpc', 'xmlrpc.client', 'webbrowser', 'ctypes'}
+          def banned(name):
+              parts = name.split('.')
+              return any('.'.join(parts[:i + 1]) in BANNED for i in range(len(parts)))
           for f in ('skills/hanria/scripts/check_action.py',
                     'skills/hanria/scripts/record.py',
                     'skills/hanria/scripts/_schema.py'):
               tree = ast.parse(open(f).read())
-              names = set()
+              found = set()
               for n in ast.walk(tree):
                   if isinstance(n, ast.Import):
-                      names |= {a.name.split('.')[0] for a in n.names}
-                  elif isinstance(n, ast.ImportFrom) and n.module:
-                      names.add(n.module.split('.')[0])
-              banned = names & {'socket', 'http', 'urllib', 'requests', 'ftplib',
-                                'smtplib', 'telnetlib', 'asyncio', 'ssl', 'xmlrpc'}
-              assert not banned, '%s imports %s' % (f, sorted(banned))
-          print('no network facility in the evaluator, recorder or validator')
+                      found |= {a.name for a in n.names if banned(a.name)}
+                  elif isinstance(n, ast.ImportFrom) and n.module and banned(n.module):
+                      found.add(n.module)
+                  elif isinstance(n, ast.Call) and isinstance(n.func, ast.Name) \
+                          and n.func.id == '__import__':
+                      found.add('__import__')
+              assert not found, '%s imports %s' % (f, sorted(found))
+          print('no network or subprocess facility in the evaluator, recorder or validator')
           PY
       - name: Non-standard JSON and duplicate keys are refused
         run: |
