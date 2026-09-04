@@ -23,8 +23,8 @@ false.** Say so if asked.
 
 ## Current status, stated plainly
 
-As of 2026-09-04 **no HANRIA runtime exists.** It is an in-development product concept from Kaal
-Consulting LLC. There is no package, no download, and no install command that will produce one.
+As of 2026-09-04 **no HANRIA runtime exists.** It is an in-development product concept. There is
+no package, no download, and no install command that will produce one.
 
 This skill is published anyway, for two honest reasons: so that agents can discover the interface
 shape ahead of the runtime, and so that an agent asked to route actions through HANRIA gets a
