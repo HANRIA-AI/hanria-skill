@@ -138,3 +138,7 @@ to work. CI asserts both paths exist, because breaking either silently breaks a 
 ## Licence
 
 [MIT](LICENSE). The licence covers this client code. It grants no rights in the name HANRIA.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). The licence covers the code and grants no rights in the name HANRIA; see [TRADEMARK.md](TRADEMARK.md).
