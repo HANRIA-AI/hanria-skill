@@ -40,14 +40,13 @@ this skill gives you enforcement, that claim is false.**
   in the other, and first-match-wins fell through to a broader permit beneath it. Both sides are now
   composed before comparison, so that pair matches. Compatibility forms are not folded: a fullwidth
   solidus is not a separator to any filesystem, and folding it would invent matches. What a given
-  filesystem does with the bytes it is handed is still outside this layer. **Prefix comparison is
-  not percent-decoded**: only the parent-segment check decodes. A target that spells a denied path
-  with percent-escapes (`/data/s%C3%A9crets/` for `/data/sécrets/`) does not match the deny prefix
-  and falls through to whatever broader permit sits below it, exactly the pattern the NFC change
-  closed for normalization forms. It is pinned in CI as a known limit. Closing it means choosing
-  between decoding before comparison, which would also widen permits, and refusing any target whose
-  decoded form differs from its written form, which would refuse legitimate query strings; neither
-  is made here.
+  filesystem does with the bytes it is handed is still outside this layer. **A denial or an escalation matches any spelling of the target**: as written and
+  percent-decoded to a fixed point, both composed. **A permission matches only the spelling as
+  written**, composed. So an encoded spelling of a denied path (`/data/s%C3%A9crets/` for
+  `/data/sécrets/`) is denied, a permission is never widened by decoding, and a legitimate
+  percent-escaped query string is not refused for being one. That closes, for encoding, the same
+  first-match-wins gap the NFC change closed for normalization forms. Encodings other than
+  percent-escapes are still not recognized (see below).
 
 - **A mandate is not authenticated.** `issued_by` is free text. Nothing establishes who wrote a
   mandate, and this skill has no notion of a signature or an authority that issued one.

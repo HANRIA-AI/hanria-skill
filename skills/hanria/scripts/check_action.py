@@ -209,6 +209,42 @@ def _nfc(text):
     path separator to any filesystem, and folding it would invent matches.
     """
     return unicodedata.normalize("NFC", text)
+
+
+def _decode_stable(text):
+    """Percent-decode until the text stops changing.
+
+    Repeated so double-encoding cannot hide a segment or a prefix. Malformed
+    escapes are left as written; the decoder never raises on them, but the
+    loop is guarded anyway so a decoding failure can only leave the text
+    less decoded, never skip a check.
+    """
+    decoded, seen = text, set()
+    while decoded not in seen:
+        seen.add(decoded)
+        try:
+            decoded = _unquote(decoded)
+        except Exception:
+            break
+    return decoded
+
+
+def _target_spellings(clause, target):
+    """The spellings of a target that a clause's prefix is compared against.
+
+    A denial or an escalation matches any spelling: the target as written and
+    the target percent-decoded to a fixed point, both canonically composed.
+    A permission matches only the spelling as written, composed. So an
+    encoded spelling of a denied path is still denied, a permission is never
+    widened by decoding, and a legitimate percent-escaped query string is not
+    refused for being one. Broader denial and narrower permission are both
+    the safe direction.
+    """
+    written = _nfc(target)
+    if clause["effect"] == "permit":
+        return [written]
+    decoded = _nfc(_decode_stable(target))
+    return [written] if decoded == written else [written, decoded]
 CLAUSE_KEYS = {"id", "effect", "note", "match"}
 MANDATE_KEYS = {"schema_version", "mandate_id", "issued_by", "purpose",
                 "not_valid_after", "default", "requires_human", "clauses"}
@@ -511,8 +547,9 @@ def clause_matches(clause, op):
             return False, "verb %r not in %s" % (op.get("verb"), m["verb"])
 
     if "target_prefix" in m:
-        target = _nfc(op.get("target") or "")
-        if not any(target.startswith(_nfc(p)) for p in m["target_prefix"]):
+        spellings = _target_spellings(clause, op.get("target") or "")
+        prefixes = [_nfc(p) for p in m["target_prefix"]]
+        if not any(t.startswith(p) for t in spellings for p in prefixes):
             return False, "target %r matches no permitted prefix" % op.get("target")
 
     if "counterparty" in m:
@@ -590,13 +627,7 @@ def _evaluate(mandate, action, now=None):
     # Decode percent-escapes before looking for parent segments: "%2e%2e" is
     # "..", and anything that decodes the target later would see it that way.
     # Repeated until stable, so double-encoding cannot hide a segment.
-    decoded, seen = target, set()
-    while decoded not in seen:
-        seen.add(decoded)
-        try:
-            decoded = _unquote(decoded)
-        except Exception:
-            break
+    decoded = _decode_stable(target)
     if any(seg == ".." for seg in re.split(r"[/\\]", decoded)):
         return _outcome(
             "deny",
