@@ -56,3 +56,76 @@ jobs:
         run: |
           ! grep -rIn --exclude-dir=.git -E 'sk-live-[A-Za-z0-9]{12,}|BEGIN (RSA|EC|OPENSSH) PRIVATE KEY' . \
             || { echo "possible secret committed"; exit 1; }
+      - name: The operator entity is not named anywhere
+        run: |
+          # Bracketed so this line does not match its own pattern.
+          ! grep -rIn --exclude-dir=.git -i '[k]aal' . \
+            || { echo "operator entity must not appear on any HANRIA surface"; exit 1; }
+      - name: Mandate check returns permit, deny and escalate correctly
+        run: |
+          set +e
+          M=skills/hanria/examples/mandate.example.json
+          check () {
+            out=$(python3 skills/hanria/scripts/check_action.py --mandate $M --action "$1"); code=$?
+            echo "$out"
+            test "$code" = "$2" || { echo "$1: expected exit $2, got $code"; exit 1; }
+            echo "$out" | grep -q "\"outcome\": \"$3\"" || { echo "$1: expected $3"; exit 1; }
+          }
+          check skills/hanria/examples/action.read-ticket.json 0 permit
+          check skills/hanria/examples/action.read-home.json 1 deny
+          check skills/hanria/examples/action.refund.json 2 escalate
+      - name: An amount over the clause ceiling does not permit
+        run: |
+          set +e
+          out=$(python3 skills/hanria/scripts/check_action.py \
+            --mandate skills/hanria/examples/mandate.example.json \
+            --action skills/hanria/examples/action.refund-too-large.json); code=$?
+          echo "$out"
+          test "$code" = "1" || { echo "expected deny (exit 1), got $code"; exit 1; }
+          echo "$out" | grep -q 'exceeds the ceiling' || { echo "expected the ceiling named in the reason"; exit 1; }
+      - name: A request carrying a credential is denied by the checker too
+        run: |
+          set +e
+          out=$(python3 skills/hanria/scripts/check_action.py \
+            --mandate skills/hanria/examples/mandate.example.json \
+            --action skills/hanria/examples/rejected-secret.json); code=$?
+          echo "$out"
+          test "$code" = "1" || { echo "expected deny (exit 1), got $code"; exit 1; }
+          echo "$out" | grep -q 'credential' || exit 1
+      - name: Evaluation fails closed on an expired or malformed mandate
+        run: |
+          set +e
+          python3 -c "import json;m=json.load(open('skills/hanria/examples/mandate.example.json'));m['not_valid_after']='2020-01-01T00:00:00Z';json.dump(m,open('/tmp/expired.json','w'))"
+          out=$(python3 skills/hanria/scripts/check_action.py --mandate /tmp/expired.json \
+            --action skills/hanria/examples/action.read-ticket.json); code=$?
+          echo "$out"
+          test "$code" = "1" || { echo "expired mandate must deny, got $code"; exit 1; }
+          echo '{"schema_version":"0.2-draft"}' > /tmp/bad.json
+          out=$(python3 skills/hanria/scripts/check_action.py --mandate /tmp/bad.json \
+            --action skills/hanria/examples/action.read-ticket.json); code=$?
+          echo "$out"
+          test "$code" = "3" || { echo "malformed mandate must error, got $code"; exit 1; }
+          echo "$out" | grep -qv '"outcome": "permit"' || { echo "must never permit"; exit 1; }
+      - name: The log chain detects alteration and deletion
+        run: |
+          set +e
+          L=/tmp/chain.jsonl; rm -f $L
+          for a in read-ticket read-home refund; do
+            python3 skills/hanria/scripts/check_action.py \
+              --mandate skills/hanria/examples/mandate.example.json \
+              --action skills/hanria/examples/action.$a.json > /tmp/out.json
+            python3 skills/hanria/scripts/record.py append --log $L \
+              --action skills/hanria/examples/action.$a.json --outcome /tmp/out.json
+          done
+          python3 skills/hanria/scripts/record.py verify --log $L || { echo "fresh chain must verify"; exit 1; }
+          python3 - <<'PY'
+          import json
+          e=[json.loads(l) for l in open('/tmp/chain.jsonl') if l.strip()]
+          e[1]['body']['outcome']['outcome']='permit'
+          open('/tmp/chain.jsonl','w').write('\n'.join(json.dumps(x,sort_keys=True,separators=(',',':')) for x in e)+'\n')
+          PY
+          python3 skills/hanria/scripts/record.py verify --log $L; code=$?
+          test "$code" = "1" || { echo "a flipped outcome must break the chain, got $code"; exit 1; }
+          python3 skills/hanria/scripts/record.py append --log $L \
+            --action skills/hanria/examples/action.read-ticket.json --outcome /tmp/out.json; code=$?
+          test "$code" != "0" || { echo "must refuse to append to a broken chain"; exit 1; }

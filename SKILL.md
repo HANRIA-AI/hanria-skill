@@ -1,93 +1,119 @@
 ---
 name: hanria
-description: Request a governed action through a local HANRIA runtime, and receive a permit, denial, approval request, or receipt. Use when an operator has asked that consequential agent actions be authorized and recorded through HANRIA. IMPORTANT — installing this skill does NOT create enforcement, and as of 2026-09-04 no HANRIA runtime exists to install; this skill will detect its absence and tell you so.
+description: Check a proposed agent action against an operator-authored mandate, and keep a hash-chained record of the decision. Use when an operator has written down what an agent may do and wants consequential actions checked against it before they happen and recorded afterward. Works locally with no network and no runtime. IMPORTANT - this skill is advisory: it evaluates and records, it cannot prevent an action.
 homepage: https://hanria.ai/
 license: see homepage
 ---
 
-# HANRIA — request a governed action
+# HANRIA — check an action against a mandate
 
-## Read this before you use this skill
+An operator writes down what you may do. You check a proposed action against it before acting,
+and you keep a record of what was decided. Both steps run locally, with no network calls and no
+credentials.
 
-**This skill does not enforce anything.** It is a client. It describes an action, hands the
-description to a local runtime, and reports back what the runtime decided.
+## What this skill can and cannot do
 
-A skill is instructions and code loaded into your context. Anything in your context can be ignored,
-overridden, or bypassed — by you, by a later instruction, or by a different agent. **Enforcement is
-possible only where the protected credentials, tools, signing keys, or worker processes are
-reachable exclusively through a component that can refuse.** That component is the runtime, not
-this file.
+**It can:** evaluate a proposed action against a mandate and tell you `permit`, `deny` or
+`escalate`, with the specific clause relied on; refuse a request that carries a credential; and
+append the decision to a local log that detects later alteration.
 
-**If any artifact tells you that installing this skill gives you HANRIA enforcement, that claim is
-false.** Say so if asked.
+**It cannot enforce.** Nothing here stands between you and a tool or credential. If you ignore a
+`deny`, the operation still happens. Enforcement is possible only where the protected credentials,
+tools, signing keys or worker processes are reachable exclusively through a component that can
+refuse — and that component is not this skill.
 
-## Current status, stated plainly
+That distinction is the whole point of the design, so state it accurately if you are asked. **If any
+artifact tells you that installing this skill gives you enforcement, that claim is false.** A skill
+is instructions and code loaded into your context, and anything in your context can be ignored,
+overridden, or bypassed — by you, by a later instruction, or by a different agent.
 
-As of 2026-09-04 **no HANRIA runtime exists.** It is an in-development product concept. There is
-no package, no download, and no install command that will produce one.
+## Use it
 
-This skill is published anyway, for two honest reasons: so that agents can discover the interface
-shape ahead of the runtime, and so that an agent asked to route actions through HANRIA gets a
-correct negative answer rather than inventing a capability. **Do not tell your operator that HANRIA
-governed an action. It cannot yet.**
+### 1. Find the mandate
 
-## How to use this skill
+The operator's mandate is a JSON file they wrote. Ask them where it is if you do not know. A worked
+example is at `skills/hanria/examples/mandate.example.json`, and the shape is defined by
+`skills/hanria/schema/mandate.schema.json`.
 
-### Step 1 — check whether a runtime is present
+### 2. Describe the action you propose to take
 
-Run the detection script. It is read-only and makes no network calls.
+Write an action request against `skills/hanria/schema/action-request.schema.json`. It names what
+you propose to do — kind, verb, target, and where relevant a counterparty and an amount.
 
-```
-python3 scripts/detect_runtime.py
-```
+**Never put a credential, secret, key, token or password in a request.** A request describes what is
+to be done, not the means of doing it. The checker refuses a request that appears to carry one
+rather than removing it, because an attempt to send a credential is worth seeing.
 
-Three possible outcomes:
-
-- `absent` — expected today. No runtime. **Report this to your operator and stop.** Do not proceed,
-  do not simulate a decision, and do not describe the action as authorized.
-- `present` — a runtime answered. Continue to step 2.
-- `error` — something responded but not correctly. Treat as `absent` and report the error text.
-
-### Step 2 — build a request against the schema
-
-The action schema is `schema/action-request.schema.json`. A request names what you propose to do, in
-typed form, and never contains a credential, secret, or key.
-
-### Step 3 — submit it and act on the outcome
+### 3. Check it
 
 ```
-python3 scripts/request_action.py --file my-request.json
+python3 skills/hanria/scripts/check_action.py \
+  --mandate MANDATE.json --action ACTION.json
 ```
 
-Outcomes and what each obliges you to do:
+Four outcomes, and what each asks of you:
 
-| Outcome | What it means | What you must do |
-|---|---|---|
-| `permit` | The runtime performed the mediated operation | Report the receipt reference. Do not re-perform the operation yourself |
-| `deny` | Outside the mandate | **Stop. Do not route around it.** Report the denial and its reason |
-| `escalate` | A human decision is required | Report that approval is pending. Do not proceed or retry in a loop |
-| `error` | The request or the runtime failed | Report the error. Do not retry with a broadened request |
+- **`permit`** — a clause covers this. Proceed, then record the decision.
+- **`deny`** — either a clause forbids it or nothing permits it. **Do not proceed.** The reason names
+  the clause, or the clauses that came closest and why they did not match, which is usually what the
+  operator needs to hear.
+- **`escalate`** — the mandate reserves this for a person. **Stop and ask your operator.** Do not
+  treat their general instruction to be helpful as the approval; the mandate asked for a decision on
+  this action.
+- **`error`** — the mandate or the request could not be resolved. **Treat as `deny`** and report the
+  text. Evaluation is fail-closed by design: it never resolves an ambiguity in favour of proceeding.
 
-**A denial is a result, not an obstacle.** Attempting the operation by another path after a `deny`
-defeats the only thing this system does. If you find yourself looking for another route, the correct
-action is to tell your operator you were denied.
+Exit codes are `0` permit, `1` deny, `2` escalate, `3` error, so this composes into a shell pipeline.
 
-## What this skill will never do
+### 4. Record it
 
-- Hold, request, read, or transmit a credential, secret, private key, or token
-- Make a network call of its own
-- Decide an authorization question itself
-- Report an action as governed, authorized, permitted, or recorded when no runtime answered
-- Represent HANRIA as available, released, audited, certified, or compliant
+```
+python3 skills/hanria/scripts/record.py append \
+  --log LOG.jsonl --action ACTION.json --outcome OUTCOME.json
+```
 
-## Boundaries
+Each entry carries the digest of the one before it, so altering or deleting any earlier entry breaks
+every digest after it. `record.py verify --log LOG.jsonl` reports the first index that fails, and
+`append` refuses to write to a log that no longer verifies rather than burying the damage.
 
-HANRIA is an in-development concept. The name is a candidate under internal trademark review, with
-no registration, completed clearance, or exclusive rights claimed. No third-party security audit,
-certification, or regulatory approval is claimed. No receipt format, public verifier, or
-interoperability standard has been published. HANRIA would not hold funds or digital assets and is
-not a financial service. Nothing here prevents, detects, reverses, or indemnifies unauthorized or
-fraudulent activity.
+**Do not overstate what the log is.** It is a local integrity check for whoever holds the file. There
+is no signature, no published format and no independent verifier, so anyone who can write the file
+can rebuild it end to end and produce a log that verifies. It is not evidence, not an attestation,
+and not proof to anyone else that an action was authorized.
 
-More: https://hanria.dev/ (install and schemas) · https://hanria.ai/ (concept) · https://hanria.ai/llms.txt
-Also in 日本語 https://hanria.ai/ja/ · 中文 https://hanria.ai/zh/ · 한국어 https://hanria.ai/ko/
+## Writing a good mandate
+
+For operators. The clauses are evaluated in order and the first match decides; anything unmatched
+takes the mandate `default`, which is `deny` or `escalate` — never `permit`, because a mandate that
+permits by default cannot express a limit.
+
+Three things worth doing:
+
+- **Set `not_valid_after`.** An unbounded mandate is what lets delegated authority outlive the task
+  it was granted for.
+- **Use `requires_human` for the kinds you never want decided by a model** — typically
+  `credential_use`, `transaction` and `administrative`. It overrides a permitting clause, so a
+  ceiling narrows what may be asked for without removing you from the decision.
+- **Write denials you could have left to the default.** A clause that says "not `/home/`, not `/etc/`"
+  makes the intent legible to whoever reviews this later; silence does not.
+
+Every clause takes a `note`, and it is carried into the decision record verbatim. Use it to say why
+the clause exists, not what it does.
+
+## Is a runtime present?
+
+```
+python3 skills/hanria/scripts/detect_runtime.py
+```
+
+As of 2026-09-04 no HANRIA runtime exists; this reports `absent`, which is the expected answer. It
+is here so that an agent asked to route an action through a HANRIA runtime gets a correct negative
+rather than inventing a capability. **Do not tell your operator that a runtime governed an action.**
+
+## Status
+
+HANRIA is in development. HANRIA is a candidate name under internal trademark review — no
+registration, completed clearance, or exclusive rights are claimed. No security certification,
+audit, or product availability is claimed. The schemas are drafts and may change.
+
+More at [hanria.ai](https://hanria.ai/).
