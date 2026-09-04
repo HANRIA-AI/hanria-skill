@@ -628,6 +628,21 @@ jobs:
           out=$(python3 $S/check_action.py --mandate /tmp/fw-mandate.json --action /tmp/fw-action.json); code=$?
           test "$code" = "1" || { echo "a fullwidth solidus must not be folded into a path separator, got $code"; echo "$out"; exit 1; }
           echo "normalization form cannot bypass a deny prefix; compatibility forms are not folded"
+          # Known limit, pinned so it is stated rather than hidden: prefix comparison is not
+          # percent-decoded, so a percent-encoded spelling of a denied path falls through.
+          python3 - <<'PY'
+          import json, copy
+          M=json.load(open('skills/hanria/examples/mandate.example.json'))
+          A=json.load(open('skills/hanria/examples/action.read-ticket.json'))
+          m=copy.deepcopy(M); m['clauses']=[
+            {"id":"deny-secrets","effect":"deny","match":{"kind":["file"],"target_prefix":["/data/s\u00e9crets/"]}},
+            {"id":"permit-data","effect":"permit","match":{"kind":["file"],"verb":["read"],"target_prefix":["/data/"]}}]
+          a=copy.deepcopy(A); a['operation']['target']='/data/s%C3%A9crets/x.txt'
+          json.dump(m,open('/tmp/pct-mandate.json','w')); json.dump(a,open('/tmp/pct-action.json','w'))
+          PY
+          out=$(python3 $S/check_action.py --mandate /tmp/pct-mandate.json --action /tmp/pct-action.json); code=$?
+          test "$code" = "0" || { echo "the percent-encoded gap is a stated limit; if this now denies, update LIMITATIONS.md and this pin together"; echo "$out"; exit 1; }
+          echo "percent-encoded spelling of a denied path still falls through: known limit, pinned"
       - name: Document size and nesting are validated bounds, refused by name
         run: |
           set +e

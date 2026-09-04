@@ -36,12 +36,18 @@ this skill gives you enforcement, that claim is false.**
   addresses the shapes we know about, not the general problem.
 
 - **Prefixes and targets are compared after canonical composition (NFC), and nothing more.** Until
-  this file's third revision they were compared literally, and the entry here claimed that failed
-  safe. It did not: a deny prefix written in one normalization form failed to match a target written
+  this revision they were compared literally, and the entry here claimed that failed safe. It did not: a deny prefix written in one normalization form failed to match a target written
   in the other, and first-match-wins fell through to a broader permit beneath it. Both sides are now
   composed before comparison, so that pair matches. Compatibility forms are not folded: a fullwidth
   solidus is not a separator to any filesystem, and folding it would invent matches. What a given
-  filesystem does with the bytes it is handed is still outside this layer.
+  filesystem does with the bytes it is handed is still outside this layer. **Prefix comparison is
+  not percent-decoded**: only the parent-segment check decodes. A target that spells a denied path
+  with percent-escapes (`/data/s%C3%A9crets/` for `/data/sécrets/`) does not match the deny prefix
+  and falls through to whatever broader permit sits below it, exactly the pattern the NFC change
+  closed for normalization forms. It is pinned in CI as a known limit. Closing it means choosing
+  between decoding before comparison, which would also widen permits, and refusing any target whose
+  decoded form differs from its written form, which would refuse legitimate query strings; neither
+  is made here.
 
 - **A mandate is not authenticated.** `issued_by` is free text. Nothing establishes who wrote a
   mandate, and this skill has no notion of a signature or an authority that issued one.
