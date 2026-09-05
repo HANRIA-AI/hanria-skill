@@ -118,10 +118,14 @@ this skill gives you enforcement, that claim is false.**
   or the imports, is not caught, and the script dies of the signal (the shell reports 130). If the
   interrupt lands after the outcome was already written, the caller receives two JSON objects; the
   exit code, 3, governs and any earlier object is void. A second interrupt while the guard is
-  writing its error object is not caught, and the script dies of the signal. And if the null device
-  cannot be opened to silence a closed stream, the interpreter's exit flush still reports 120.
-  Nothing is retried in any of these cases, and no log entry is written for an outcome that was
-  never delivered.
+  writing its error object is not caught, and the script dies of the signal. If the null device
+  cannot be opened to silence a closed stream and the interpreter still has bytes to flush at exit,
+  it reports 120. A process with no descriptors left at all fails inside argparse's own imports
+  with exit 1 and a traceback, before any outcome exists. Nothing is retried in any of these cases.
+  And `record append` writes the log entry and the head before it prints its status: on a closed
+  pipe the chain has been extended and the status object was not delivered, so a caller that
+  retries on exit 3 appends the same decision twice. Read the log's head, not the status, to learn
+  whether an append happened.
 - `_schema.py` implements the JSON Schema subset these schemas use and refuses any keyword, or
   `format` value, that it does not implement — checked across the whole schema, not only the branches
   a document happens to reach. It is not a general-purpose JSON Schema validator and should not be
