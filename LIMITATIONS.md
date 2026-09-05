@@ -120,12 +120,15 @@ this skill gives you enforcement, that claim is false.**
   exit code, 3, governs and any earlier object is void. A second interrupt while the guard is
   writing its error object is not caught, and the script dies of the signal. If the null device
   cannot be opened to silence a closed stream and the interpreter still has bytes to flush at exit,
-  it reports 120. A process with no descriptors left at all fails inside argparse's own imports
-  with exit 1 and a traceback, before any outcome exists. Nothing is retried in any of these cases.
-  And `record append` writes the log entry and the head before it prints its status: on a closed
-  pipe the chain has been extended and the status object was not delivered, so a caller that
-  retries on exit 3 appends the same decision twice. Read the log's head, not the status, to learn
-  whether an append happened.
+  it reports 120. A process that runs out of descriptors after start-up fails wherever the next
+  open happens; when that is inside argparse's own imports, the result is exit 1 with a traceback
+  and no outcome object. Nothing is retried in any of these cases. And `record append` writes the
+  log entry and the head before it prints its status: on a closed pipe the chain has been extended
+  and the status object was not delivered, so a caller that retries on exit 3 records the same
+  decision a second time, with its own timestamp. The head file after the call is the current pin,
+  not a receipt for that call. To learn whether an append happened, compare its digest and count
+  with the pin you retained before the call, which is what `verify --expect-head` does; if they are
+  unchanged a retry is safe, and if they moved, do not append again.
 - `_schema.py` implements the JSON Schema subset these schemas use and refuses any keyword, or
   `format` value, that it does not implement — checked across the whole schema, not only the branches
   a document happens to reach. It is not a general-purpose JSON Schema validator and should not be
