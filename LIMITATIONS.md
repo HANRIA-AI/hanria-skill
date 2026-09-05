@@ -127,8 +127,11 @@ this skill gives you enforcement, that claim is false.**
   and the status object was not delivered, so a caller that retries on exit 3 records the same
   decision a second time, with its own timestamp. The head file after the call is the current pin,
   not a receipt for that call. To learn whether an append happened, compare its digest and count
-  with the pin you retained before the call, which is what `verify --expect-head` does; if they are
-  unchanged a retry is safe, and if they moved, do not append again.
+  with the pin you retained before the call: if they are unchanged a retry is safe, and if they
+  moved, do not append again. `verify --expect-head <digest>` asks the same question with the
+  retained digest alone: it checks that digest against the chain tip, ignoring the head file and
+  the count, and reports `broken` if the tip moved, though its reason text describes truncation
+  rather than an append, and on an empty log the flag is not consulted at all.
 - `_schema.py` implements the JSON Schema subset these schemas use and refuses any keyword, or
   `format` value, that it does not implement — checked across the whole schema, not only the branches
   a document happens to reach. It is not a general-purpose JSON Schema validator and should not be
