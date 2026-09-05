@@ -9,8 +9,8 @@ Exit codes:  0 present   1 absent   2 error
 import json, os, socket, sys, glob
 
 # Where this looks. These are this script's own probe locations, not a
-# specification: no runtime exists, and none of these is a committed path. Set
-# HANRIA_SOCKET to point the probe somewhere else.
+# specification: nothing is published at any of these paths and none of them is
+# a committed interface. Set HANRIA_SOCKET to point the probe somewhere else.
 CANDIDATES = [
     os.environ.get("HANRIA_SOCKET", ""),
     os.path.expanduser("~/.hanria/run/hanria.sock"),
@@ -59,7 +59,7 @@ def main():
     out = {
         "status": "absent",
         "searched": [p for p in CANDIDATES if p],
-        "why": "No HANRIA runtime exists as of 2026-09-04. HANRIA is an in-development product concept. There is no package, download, or install command that will produce one.",
+        "why": "No HANRIA runtime answered on this host. There is no package, download, or install command that will produce one, so if you did not build one yourself there is none to find.",
         "agent_instruction": "Report to your operator that HANRIA is not installed and not available, then STOP. Do not proceed with the action as though it were governed. Do not simulate a permit, deny, or receipt. Do not describe the action as authorized, recorded, or HANRIA-governed.",
         "what_installing_a_skill_does_not_do": "Loading this skill does not create enforcement. Enforcement requires that the protected credentials, tools, keys, or worker processes be reachable only through a runtime that can refuse.",
         "more": "https://hanria.ai/llms.txt",
