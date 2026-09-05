@@ -1025,7 +1025,7 @@ jobs:
           print("duplicate-key entries refused by both verify and append")
           PY
 
-      - name: An interrupt or a closed stdout exits 3, never 1, 120, or 130
+      - name: Past the guard, an interrupt or a closed stdout exits 3, not 1, 120, or 130
         run: |
           python3 - <<'PY'
           import errno, json, os, signal, subprocess, tempfile, time
@@ -1046,7 +1046,13 @@ jobs:
           # 1. Standard output is a pipe nobody reads. The outcome cannot be delivered;
           #    that is an error (3), not a deny (1), not "chain broken" (1), not the
           #    interpreter's shutdown-flush code (120).
-          for name, cmd in (("check_action", CHECK), ("record", VERIFY)):
+          #    Usage errors and --help leave main by SystemExit, past the guard's
+          #    normal flush; they must reach the same 3, not the shutdown 120.
+          for name, cmd in (("check_action", CHECK), ("record", VERIFY),
+                            ("check_action usage", CHECK[:2]),
+                            ("record usage", VERIFY[:2]),
+                            ("record verify usage", VERIFY[:3]),
+                            ("check_action --help", CHECK[:2] + ["--help"])):
               rd, wr = os.pipe()
               os.close(rd)
               p = subprocess.run(cmd, stdout=wr, stderr=subprocess.PIPE, text=True)

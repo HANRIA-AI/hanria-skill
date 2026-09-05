@@ -298,21 +298,26 @@ def _stdout_gone(reason):
     of the buffered outcome cannot raise a second BrokenPipeError (which would
     replace exit 3 with 120), then say why on standard error, best effort.
     """
-    devnull = os.open(os.devnull, os.O_WRONLY)
     try:
-        os.dup2(devnull, sys.stdout.fileno())
-    finally:
-        os.close(devnull)
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, sys.stdout.fileno())
+        finally:
+            os.close(devnull)
+    except (OSError, ValueError):
+        # No usable descriptor 1 at all (stdout replaced by an object without
+        # one, or already closed). There is nothing left to redirect.
+        pass
     try:
         sys.stderr.write(reason + "\n")
         sys.stderr.flush()
-    except OSError:
+    except (OSError, ValueError):
         pass
 
 
 def run_guarded(main, error_object):
     """Run `main` and make the two interruptions that pass `except Exception`
-    exit 3, never 1, 120, or 130.
+    exit 3 rather than 1, 120, or 130, once control has reached this guard.
 
     KeyboardInterrupt is a BaseException, so a script's own error handling
     never sees it and Python exits 130 with a traceback. BrokenPipeError on
@@ -323,7 +328,9 @@ def run_guarded(main, error_object):
     `error_object(reason)` builds the script's own error shape. It is written
     on interrupt when standard output still accepts it. If the interrupt
     lands after the outcome was already written, the caller sees two objects;
-    the exit code, 3, governs (LIMITATIONS.md).
+    the exit code, 3, governs. An interrupt before this guard is entered, in
+    interpreter start-up or the imports, is not covered: the script dies of
+    the signal (LIMITATIONS.md).
     """
     try:
         code = main()
@@ -333,6 +340,16 @@ def run_guarded(main, error_object):
         # "Exception ignored" and exit 120. Flush here, inside the guard.
         sys.stdout.flush()
         return code
+    except SystemExit:
+        # Usage errors and --help leave main by SystemExit, not by return, so
+        # the flush above never ran and the same shutdown-flush 120 would
+        # follow. Flush here; a closed pipe is the same undelivered outcome.
+        try:
+            sys.stdout.flush()
+        except BrokenPipeError:
+            _stdout_gone("standard output closed before the outcome was written")
+            return 3
+        raise
     except KeyboardInterrupt:
         reason = "interrupted; the exit code governs, not any earlier output"
         try:
