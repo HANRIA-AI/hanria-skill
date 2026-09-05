@@ -75,7 +75,6 @@ skills/hanria/scripts/check_action.py:626:9: replace if condition with False
 skills/hanria/scripts/check_action.py:409:13: replace raise with pass
 skills/hanria/scripts/check_action.py:416:13: replace if condition with False
 skills/hanria/scripts/check_action.py:441:13: replace raise with pass
-skills/hanria/scripts/check_action.py:420:13: replace if condition with False
 skills/hanria/scripts/check_action.py:598:12: replace >= with >
 skills/hanria/scripts/check_action.py:388:17: replace raise with pass
 skills/hanria/scripts/check_action.py:417:17: replace raise with pass

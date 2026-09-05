@@ -79,7 +79,7 @@ so: it fails when the survivors are not exactly this list.
   `parse_time`: the schema's calendar check refuses an impossible date
   first, and only `not_valid_after` is ever parsed.
 - `check_action.py:270`, `:354`, `:385`, `:387`, `:388`, `:391`, `:397`,
-  `:401`, `:406`, `:409`, `:416`, `:417`, `:420`, `:441`: the raise
+  `:401`, `:406`, `:409`, `:416`, `:417`, `:441`: the raise
   inside, or the required-field test of, hand
   checks listed above as shadowed by the schema.
 - `check_action.py:596`, the fallback that makes a timezone-naive expiry
