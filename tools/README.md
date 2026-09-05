@@ -35,6 +35,12 @@ second attempt on the same reasoning, and prints the failing step's output.
 Every step starts with the interrupt signal at its default: a shell launches a
 background job with that signal ignored and every child inherits it, and the
 step that interrupts a script would otherwise wait for an exit that never comes.
+Every step is also told, in `HANRIA_MUTANTS_SOURCE_TREE`, where the scripts
+were read from: in the copy it runs in the mutated script has been
+re-unparsed, its line numbers moved (in the baseline, all four), and a step
+that reads the scripts as data rather than running them (`check_lists.py`)
+must read the tree as it is. Outside the harness the
+variable is unset and that tree is the checkout.
 
 Output goes to `mutants.out/` (`caught.txt`, `missed.txt`, `timeout.txt`). Exit
 codes follow cargo-mutants: 0 all caught, 2 survivors, 3 timeouts, 4 baseline

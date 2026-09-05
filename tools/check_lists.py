@@ -20,9 +20,18 @@ import mutants  # noqa: E402
 
 
 def main():
+    # Under the mutation harness this runs inside a copy of the tree in which
+    # the mutated script has been re-unparsed, so its line numbers have moved
+    # and one site has changed; in the baseline all four are re-unparsed and
+    # none is mutated.
+    # The harness names the tree the scripts were read from; the lists are
+    # checked against that tree, so the check decides the same question in
+    # both places. Outside the harness the variable is unset and the tree is
+    # this checkout.
+    root = os.environ.get("HANRIA_MUTANTS_SOURCE_TREE") or mutants.ROOT
     existing = set()
     for path in mutants.TARGETS:
-        source = open(os.path.join(mutants.ROOT, path), encoding="utf-8").read()
+        source = open(os.path.join(root, path), encoding="utf-8").read()
         for mutant, _ in mutants.generate(path, source):
             existing.add(mutant.name())
     reasons = open(os.path.join(HERE, "EQUIVALENT.md"), encoding="utf-8").read()

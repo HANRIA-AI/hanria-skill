@@ -204,7 +204,17 @@ def run_steps(tree, steps, step_timeout):
             # the step that interrupts a script would then wait forever.
             # preexec_fn runs in a pool worker process, which has no threads
             # of its own, so the documented thread hazard does not apply.
+            # In the copy the mutated script has been re-unparsed (in the
+            # baseline, all four). A step that reads the scripts as data
+            # rather than running them (the list check) must read the scripts
+            # as they are, so every step is told where those are. Without
+            # this, the list check reported the listed names in the
+            # re-unparsed script as missing, all but the few whose line and
+            # column coincide after re-unparsing, which caught every mutant
+            # of that script and failed the baseline outright (found
+            # 2026-09-05 before the step ever ran on GitHub).
             proc = subprocess.Popen(["bash", "-eo", "pipefail", "-c", body], cwd=tree,
+                                    env=dict(os.environ, HANRIA_MUTANTS_SOURCE_TREE=ROOT),
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     start_new_session=True,
                                     preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_DFL))

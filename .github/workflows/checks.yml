@@ -1653,3 +1653,24 @@ jobs:
 
       - name: Every listed survivor names a mutant that exists and has a stated reason
         run: python3 tools/check_lists.py
+      - name: The list check reads the tree it is told to read, not the one it runs in
+        run: |
+          set +e
+          # Under the mutation harness this step runs in a mutated copy; the harness names
+          # the real tree. Outside the harness the real tree is this checkout.
+          good=${HANRIA_MUTANTS_SOURCE_TREE:-$PWD}
+          bad=$(mktemp -d /tmp/lists-bad.XXXXXX)
+          mkdir -p "$bad/skills/hanria"
+          cp -r "$good/tools" "$bad/tools"; cp -r "$good/skills/hanria/scripts" "$bad/skills/hanria/scripts"
+          # One blank line at the top moves every line of check_action.py; nothing else moves.
+          { echo; cat "$good/skills/hanria/scripts/check_action.py"; } > "$bad/skills/hanria/scripts/check_action.py"
+          out=$(HANRIA_MUTANTS_SOURCE_TREE=$bad python3 tools/check_lists.py); code=$?
+          test "$code" = "1" || { echo "a tree whose lines have moved must fail the list check, got $code"; echo "$out"; exit 1; }
+          grep -q 'no such mutant now: skills/hanria/scripts/check_action.py:' <<<"$out" || { echo "the moved lines must be reported"; echo "$out"; exit 1; }
+          n=$(grep -c 'no such mutant now: skills/hanria/scripts/record.py:' <<<"$out")
+          test "$n" = "0" || { echo "record.py did not move and must not be reported, $n lines were"; echo "$out"; exit 1; }
+          grep -q 'no reason cited' <<<"$out" && { echo "moving lines must not be mistaken for missing reasons"; echo "$out"; exit 1; }
+          out=$(HANRIA_MUTANTS_SOURCE_TREE=$good python3 tools/check_lists.py); code=$?
+          test "$code" = "0" || { echo "the tree as it is must pass, got $code"; echo "$out"; exit 1; }
+          grep -q ' 0 problems' <<<"$out" || { echo "the pass must be stated"; echo "$out"; exit 1; }
+          echo "the list check reads the tree it is told to read"
