@@ -1024,13 +1024,18 @@ jobs:
                                + ',"body":' + forged + ',"body":' + real + "}\n")
           r = subprocess.run(["python3", "skills/hanria/scripts/record.py", "verify",
                               "--log", log], capture_output=True, text=True)
-          assert json.loads(r.stdout).get("status") != "intact", \
-              "a forged duplicate-key entry verified as intact"
+          why = json.loads(r.stdout)
+          assert why.get("status") == "error" and "more than once" in why.get("reason", ""), \
+              "a forged duplicate-key entry must be refused for the duplicate, not merely fail to verify: %r" % why
           # append must refuse the same log rather than chaining onto it.
           r = subprocess.run(["python3", "skills/hanria/scripts/record.py", "append",
                               "--log", log, "--action", a, "--outcome", o],
                              capture_output=True, text=True)
-          assert r.returncode != 0, "append accepted a log with an ambiguous entry"
+          assert r.returncode == 3, "append accepted a log with an ambiguous entry"
+          # Exit code alone would also be satisfied by a missing file or a
+          # crash; the refusal must name the ambiguity.
+          why = json.loads(r.stdout)
+          assert why["status"] == "error" and "more than once" in why["reason"], why
           print("duplicate-key entries refused by both verify and append")
           PY
 
