@@ -1,0 +1,37 @@
+name: mutants
+# Mutation run of the skill's scripts against this repository's own checks.
+# Every guard in the scripts should have a step in checks.yml that fails
+# without it; tools/mutants.py makes that mechanical. Dispatch only: the run
+# executes every step of checks.yml against each of several hundred mutants.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    # About 50 s per surviving mutant; ubuntu-latest has four processors, and
+    # 360 minutes is the most a job may take.
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with: { python-version: '3.11' }
+      - run: python3 -m pip install --quiet pyyaml
+      - name: No mutant survives except the listed equivalents
+        run: |
+          set +e
+          python3 tools/mutants.py --jobs 4 --step-timeout 300 --output "$RUNNER_TEMP/mutants.out"
+          code=$?
+          set -e
+          echo "harness exit $code"
+          # Exit 0: every mutant caught. Exit 2: survivors. Exit 3: timeouts,
+          # the mutations that make a script loop or read forever, which a
+          # step detects only by not finishing. Both lists are checked below
+          # against what is documented; anything else fails the job.
+          test "$code" = 0 -o "$code" = 2 -o "$code" = 3 || { echo "harness failed with exit $code"; exit 1; }
+          # Survivors must be exactly the documented equivalents, each with
+          # its reason in tools/EQUIVALENT.md, and timeouts exactly the
+          # documented infinite loops in tools/timeouts.txt.
+          diff <(sort tools/equivalent.txt) <(sort "$RUNNER_TEMP/mutants.out/missed.txt") || { echo "survivors differ from tools/equivalent.txt"; exit 1; }
+          diff <(sort tools/timeouts.txt) <(sort "$RUNNER_TEMP/mutants.out/timeout.txt" | sed 's/  \[.*//') || { echo "timeouts differ from tools/timeouts.txt"; exit 1; }

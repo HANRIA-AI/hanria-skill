@@ -721,17 +721,26 @@ jobs:
           set +e
           out=$(python3 skills/hanria/scripts/check_action.py 2>&1); code=$?
           test "$code" = "3" || { echo "check_action usage error must exit 3 (2 means escalate), got $code"; exit 1; }
-          echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['outcome']=='error'" \
-            || { echo "a usage error must still print an outcome object"; exit 1; }
+          echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['outcome']=='error' and d['reason'].startswith('usage:'), d" \
+            || { echo "a usage error must still print an outcome object whose reason is the usage"; exit 1; }
+          # Each argument is required on its own.
+          for args in "--action skills/hanria/examples/action.read-ticket.json" "--mandate skills/hanria/examples/mandate.example.json"; do
+            out=$(python3 skills/hanria/scripts/check_action.py $args 2>&1); code=$?
+            test "$code" = "3" || { echo "check_action $args: usage error must exit 3, got $code"; exit 1; }
+            echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['reason'].startswith('usage:'), d" \
+              || { echo "check_action $args: a missing argument is a usage error"; echo "$out"; exit 1; }
+          done
           out=$(python3 skills/hanria/scripts/record.py 2>&1); code=$?
           test "$code" = "3" || { echo "record usage error must exit 3, got $code"; exit 1; }
+          echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['status']=='error' and d['reason'].startswith('usage:'), d" \
+            || { echo "record usage error must print a status object whose reason is the usage"; exit 1; }
           # Subcommand usage errors too: these exited 2 (escalate) until the parser class was
           # applied to the subparsers as well as the top level.
-          for args in "append --log /tmp/usage.log" "verify" "append" "append --log /tmp/usage.log --action /tmp/nope.json"; do
+          for args in "append --log /tmp/usage.log" "verify" "append" "append --log /tmp/usage.log --action /tmp/nope.json" "append --action /tmp/nope.json --outcome /tmp/nope.json" "append --log /tmp/usage.log --outcome /tmp/nope.json"; do
             out=$(python3 skills/hanria/scripts/record.py $args 2>&1); code=$?
             test "$code" = "3" || { echo "record.py $args: usage error must exit 3, got $code"; echo "$out"; exit 1; }
-            echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['status']=='error'" \
-              || { echo "record.py $args: a usage error must print a status object"; echo "$out"; exit 1; }
+            echo "$out" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['status']=='error' and d['reason'].startswith('usage:'), d" \
+              || { echo "record.py $args: a usage error must print a status object whose reason is the usage"; echo "$out"; exit 1; }
           done
           echo "usage errors exit 3 with an outcome object"
       - name: A log entry field outside the digest is refused
@@ -1079,11 +1088,16 @@ jobs:
           #    blocks the open; the write side reports ENXIO until a reader holds it,
           #    so the interrupt is sent only once the script is provably blocked there,
           #    and the held write end keeps it blocked in the read until the signal.
-          def interrupt(name, cmd):
+          def interrupt(name, cmd, closed_stdout=False):
               fifo = os.path.join(d, name + ".fifo")
               os.mkfifo(fifo)
-              p = subprocess.Popen(cmd + [fifo], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-              deadline = time.time() + 20
+              if closed_stdout:
+                  rd, wr = os.pipe(); os.close(rd)
+                  p = subprocess.Popen(cmd + [fifo], stdout=wr, stderr=subprocess.PIPE, text=True)
+                  os.close(wr)
+              else:
+                  p = subprocess.Popen(cmd + [fifo], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+              deadline = time.time() + 60
               while True:
                   try:
                       # Hold the write end open: closing it would hand the script an
@@ -1100,7 +1114,12 @@ jobs:
               out, err = p.communicate(timeout=20)
               os.close(held)
               assert p.returncode == 3, "%s interrupted exited %d\n%s" % (name, p.returncode, err)
-              assert "Traceback" not in err, "%s printed a traceback on interrupt:\n%s" % (name, err)
+              assert "Traceback" not in err and "Exception ignored" not in err, "%s printed a traceback on interrupt:\n%s" % (name, err)
+              if closed_stdout:
+                  # The error object could not be delivered; the reason went
+                  # to stderr and the exit is still 3, not the shutdown 120.
+                  assert "interrupted" in err, err
+                  return None
               return json.loads(out)
 
           obj = interrupt("check_action", ["python3", S + "check_action.py", "--action", A, "--mandate"])
@@ -1108,5 +1127,521 @@ jobs:
           assert obj["schema_version"] == "0.1-draft", obj
           obj = interrupt("record", ["python3", S + "record.py", "verify", "--log"])
           assert obj["status"] == "error" and "interrupted" in obj["reason"], obj
+          interrupt("check_action_closed", ["python3", S + "check_action.py", "--action", A, "--mandate"], closed_stdout=True)
+          interrupt("record_closed", ["python3", S + "record.py", "verify", "--log"], closed_stdout=True)
+          # With descriptor 0 closed as well, the null device lands on 0 when
+          # the silencer reopens it, and must be moved onto 1.
+          for name, cmd in (("check_action", CHECK), ("record", VERIFY)):
+              rd, wr = os.pipe()
+              os.close(rd)
+              p = subprocess.run(cmd, stdout=wr, stderr=subprocess.PIPE, text=True, preexec_fn=lambda: os.close(0))
+              os.close(wr)
+              assert p.returncode == 3 and "closed" in p.stderr, (name, p.returncode, p.stderr)
           print("closed stdout and SIGINT both exit 3 with no traceback, in both scripts")
+          PY
+
+      - name: Every schema refusal is reached on its own, not through a later check
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, sys, tempfile
+          # A mutation run of _schema.py found refusals that no step reached
+          # because a later check refused the same input for a different
+          # reason. Each case here fails on exactly the refusal it names.
+          sys.path.insert(0, 'skills/hanria/scripts')
+          import _schema
+          S = 'skills/hanria/scripts'
+          M = 'skills/hanria/examples/mandate.example.json'
+          A = 'skills/hanria/examples/action.read-ticket.json'
+          d = tempfile.mkdtemp()
+          def check(mandate, expect):
+              path = os.path.join(d, 'm.json'); json.dump(mandate, open(path, 'w'))
+              r = subprocess.run(['python3', S + '/check_action.py', '--mandate', path, '--action', A],
+                                 capture_output=True, text=True)
+              out = json.loads(r.stdout)
+              assert r.returncode == 3 and out['outcome'] == 'error', (expect, r.returncode, out)
+              assert expect in out['reason'], (expect, out['reason'])
+          base = json.load(open(M))
+          def cp(): return json.loads(json.dumps(base))
+          # The schema walk's own format refusal: only an unknown format under
+          # an absent property reaches it, since validate re-checks formats
+          # on the values it visits.
+          try:
+              _schema.validate({}, {"type": "object", "properties": {"absent": {"type": "string", "format": "email"}}})
+              raise AssertionError('unknown format under an absent property was accepted')
+          except _schema.SchemaError as exc:
+              assert 'format' in str(exc), exc
+          # An unsupported keyword nested under items is reached by the walk.
+          try:
+              _schema.validate([], {"type": "array", "items": {"type": "string", "pattern": "^x$"}})
+              raise AssertionError('unsupported keyword under items was accepted')
+          except _schema.SchemaError as exc:
+              assert 'pattern' in str(exc), exc
+          # An unsupported type name is refused by name, not by a crash.
+          try:
+              _schema.validate(1.5, {"type": "float"})
+              raise AssertionError('unsupported type was accepted')
+          except _schema.SchemaError as exc:
+              assert 'unsupported type' in str(exc), exc
+          # Each validator branch, reached directly: type, minimum length,
+          # maximum items, required, additional properties, and a property
+          # nested one level down.
+          for name, schema, doc in [
+              ('type', {"type": "string"}, 5),
+              ('minLength', {"type": "string", "minLength": 2}, "a"),
+              ('maxItems', {"type": "array", "maxItems": 1}, [1, 2]),
+              ('required', {"type": "object", "required": ["a"]}, {}),
+              ('additionalProperties', {"type": "object", "properties": {"a": {"type": "string"}}, "additionalProperties": False}, {"b": 1}),
+              ('nested property', {"type": "object", "properties": {"a": {"type": "object", "properties": {"b": {"type": "string"}}}}}, {"a": {"b": 1}}),
+              ('items', {"type": "array", "items": {"type": "string"}}, [1]),
+          ]:
+              try:
+                  _schema.validate(doc, schema)
+                  raise AssertionError('%s violation was accepted' % name)
+              except _schema.SchemaError:
+                  pass
+          _schema.validate({"a": {"b": "x"}, "c": 1}, {"type": "object", "properties": {"a": {"type": "object", "properties": {"b": {"type": "string"}}}}})
+          # The depth counter itself: a scalar has depth 0, closing brackets
+          # step down one at a time, an escaped quote does not end a string,
+          # and a string's own brackets never count.
+          for text, depth in [('5', 0), ('"[[["', 0), ('[', 1), ('[[]][[[]]]', 3),
+                              ('{"a": "\\"[[[[", "b": [1]}', 2), ('{"a": "x\\\\", "b": [[1]]}', 3),
+                              ('{"": [1]}', 2), ('["", "]", [[1]]]', 3)]:
+              assert _schema.nesting_depth(text) == depth, (text, _schema.nesting_depth(text))
+          # A real calendar date in a year that only the full four digits make
+          # a leap year: the calendar check reads the whole year.
+          _schema.validate("2000-02-29T00:00:00Z", {"type": "string", "format": "date-time"})
+          try:
+              _schema.validate("2100-02-29T00:00:00Z", {"type": "string", "format": "date-time"})
+              raise AssertionError('2100-02-29 accepted')
+          except _schema.SchemaError:
+              pass
+          # A type may be a list of types; exactly the maximum item count is
+          # within it.
+          _schema.validate(None, {"type": ["string", "null"]})
+          try:
+              _schema.validate(5, {"type": ["string", "null"]})
+              raise AssertionError('5 satisfied string-or-null')
+          except _schema.SchemaError:
+              pass
+          _schema.validate([1], {"type": "array", "maxItems": 1})
+          # A document that is not JSON, one with a name defined twice, and one
+          # with a non-JSON literal are each refused by name.
+          for text, part in [('{"a": 1', 'is not valid JSON'),
+                             ('{"effect": "deny", "effect": "permit"}', 'more than once'),
+                             ('{"a": NaN}', 'non-JSON literal')]:
+              path = os.path.join(d, 'raw.json'); open(path, 'w').write(text)
+              r = subprocess.run(['python3', S + '/check_action.py', '--mandate', path, '--action', A], capture_output=True, text=True)
+              out = json.loads(r.stdout)
+              assert r.returncode == 3 and part in out['reason'], (text, out)
+          # A line of exactly one byte over the bound, newline and all, is over
+          # the bound: the reader stops one character past it and must not
+          # mistake the newline it then sees for a short line.
+          log2 = os.path.join(d, 'long.jsonl')
+          open(log2, 'w').write('x' * (_schema.MAX_DOCUMENT_BYTES + 1) + '\n')
+          r = subprocess.run(['python3', S + '/record.py', 'verify', '--log', log2], capture_output=True, text=True)
+          # The reader refuses in its own words, having read one character
+          # past the bound and no more; the parser's wording would mean the
+          # whole line was read.
+          assert 'is longer than' in r.stdout and 'line 1 of' in r.stdout, r.stdout
+          # A schema file that is not JSON is named by its path in the reason.
+          import shutil
+          copy = os.path.join(d, 'copy'); shutil.copytree('skills', os.path.join(copy, 'skills'))
+          open(os.path.join(copy, 'skills', 'hanria', 'schema', 'mandate.schema.json'), 'w').write('{')
+          r = subprocess.run(['python3', os.path.join(copy, 'skills', 'hanria', 'scripts', 'check_action.py'), '--mandate', M, '--action', A], capture_output=True, text=True)
+          out = json.loads(r.stdout)
+          assert r.returncode == 3 and 'mandate.schema.json is not valid JSON' in out['reason'], out
+          # A schema file over the size bound is refused by the bound, and the
+          # reason names the file, not a placeholder.
+          big = os.path.join(d, 'bigschema'); shutil.copytree('skills', os.path.join(big, 'skills'))
+          open(os.path.join(big, 'skills', 'hanria', 'schema', 'mandate.schema.json'), 'w').write('{' + ' ' * (2 * _schema.MAX_DOCUMENT_BYTES) + '}')
+          r = subprocess.run(['python3', os.path.join(big, 'skills', 'hanria', 'scripts', 'check_action.py'), '--mandate', M, '--action', A], capture_output=True, text=True)
+          out = json.loads(r.stdout)
+          assert r.returncode == 3 and 'mandate.schema.json' in out['reason'] and 'the bound is' in out['reason'], out
+          # A boolean is not a number, and a number is.
+          _schema.validate(5, {"type": "integer"})
+          try:
+              _schema.validate(True, {"type": "integer"})
+              raise AssertionError('True satisfied integer')
+          except _schema.SchemaError:
+              pass
+          # The RFC 3339 shape is the schema's refusal; the evaluator would
+          # refuse a date-only or hour-25 expiry too, in the same words, so
+          # the schema's conformance prefix is what shows the schema check ran.
+          m = cp(); m['not_valid_after'] = '2999-01-01'
+          check(m, 'does not conform to its published schema: mandate.not_valid_after must be an RFC 3339 date-time')
+          m = cp(); m['not_valid_after'] = '2999-01-01T25:00:00Z'
+          check(m, 'does not conform to its published schema: mandate.not_valid_after must be an RFC 3339 date-time')
+          m = cp(); m['schema_version'] = '9.9-draft'
+          check(m, "must be '0.2-draft'")
+          m = cp(); m['clauses'][0]['effect'] = 'maybe'
+          check(m, 'must be one of')
+          m = cp(); m['clauses'] = []
+          check(m, 'at least 1 item')
+          # A log whose last line lacks its newline is short, not over the
+          # line bound; the bound test must not conflate the two.
+          log = os.path.join(d, 'log.jsonl'); o = os.path.join(d, 'o.json')
+          r = subprocess.run(['python3', S + '/check_action.py', '--mandate', M, '--action', A], capture_output=True, text=True)
+          open(o, 'w').write(r.stdout)
+          subprocess.run(['python3', S + '/record.py', 'append', '--log', log, '--action', A, '--outcome', o], capture_output=True, check=True)
+          text = open(log).read(); assert text.endswith('\n')
+          open(log, 'w').write(text.rstrip('\n'))
+          r = subprocess.run(['python3', S + '/record.py', 'verify', '--log', log], capture_output=True, text=True)
+          assert json.loads(r.stdout)['status'] == 'intact', r.stdout
+          # A line of exactly the bound's length with no newline is within the
+          # bound: it is refused for what it is, not for its length.
+          open(log, 'w').write('x' * _schema.MAX_DOCUMENT_BYTES)
+          r = subprocess.run(['python3', S + '/record.py', 'verify', '--log', log], capture_output=True, text=True)
+          assert 'the bound is' not in r.stdout, r.stdout
+          print('every schema refusal reached on its own')
+          PY
+
+      - name: Every match condition and every hand check decides on its own
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, tempfile
+          # A mutation run of check_action.py found match conditions that no
+          # request in this suite ever failed on alone, and hand checks that
+          # are stronger than the schema (whitespace, an empty issuer) but
+          # never reached. Each case here turns on exactly one of them.
+          S = 'skills/hanria/scripts'
+          M = 'skills/hanria/examples/mandate.example.json'
+          A = 'skills/hanria/examples/action.read-ticket.json'
+          R = 'skills/hanria/examples/action.refund.json'
+          d = tempfile.mkdtemp()
+          def run(mandate, action):
+              mp, ap = os.path.join(d, 'm.json'), os.path.join(d, 'a.json')
+              json.dump(mandate, open(mp, 'w')); json.dump(action, open(ap, 'w'))
+              r = subprocess.run(['python3', S + '/check_action.py', '--mandate', mp, '--action', ap],
+                                 capture_output=True, text=True)
+              return r.returncode, json.loads(r.stdout)
+          def expect(code, outcome, reason_part, mandate, action, why):
+              got_code, out = run(mandate, action)
+              assert got_code == code and out['outcome'] == outcome, (why, got_code, out)
+              assert reason_part in out['reason'], (why, out['reason'])
+          def cp(path): return json.load(open(path))
+          base_m, read, refund = cp(M), cp(A), cp(R)
+          def with_op(action, **changes):
+              a = json.loads(json.dumps(action)); a['operation'].update(changes); return a
+          # Match conditions. The example mandate's default is deny and its
+          # refund clause permits a transaction, which requires_human turns
+          # into escalate; a clause that does not match leaves the default.
+          expect(1, 'deny', 'no clause', base_m, with_op(read, kind='network'), 'kind alone')
+          expect(1, 'deny', 'no clause', base_m, with_op(read, verb='write'), 'verb alone')
+          expect(1, 'deny', 'no clause', base_m, with_op(refund, counterparty='someone-else'), 'counterparty alone')
+          no_amount = json.loads(json.dumps(refund)); del no_amount['operation']['amount']
+          expect(1, 'deny', 'no clause', base_m, no_amount, 'ceiling with no amount stated')
+          expect(1, 'deny', 'no clause', base_m, with_op(refund, amount={'value': '18.00', 'currency': 'EUR'}), 'currency alone')
+          expect(2, 'escalate', '', base_m, refund, 'the refund itself still escalates')
+          # Hand checks stronger than the schema.
+          a = json.loads(json.dumps(read)); a['requested_by']['agent'] = '   '
+          expect(1, 'deny', 'does not name a requesting agent', base_m, a, 'whitespace agent')
+          a = json.loads(json.dumps(read)); a['justification'] = ' \t'
+          expect(1, 'deny', 'carries no justification', base_m, a, 'whitespace justification')
+          m = json.loads(json.dumps(base_m)); m['issued_by'] = ''
+          expect(3, 'error', 'issued_by must be a non-empty string', m, read, 'empty issuer')
+          m = json.loads(json.dumps(base_m)); m['mandate_id'] = '  '
+          expect(3, 'error', 'mandate_id must be a non-empty string', m, read, 'whitespace mandate id')
+          m = json.loads(json.dumps(base_m)); m['purpose'] = ' \n'
+          expect(3, 'error', 'purpose must be a non-empty string', m, read, 'whitespace purpose')
+          m = json.loads(json.dumps(base_m)); m['clauses'][0]['id'] = ' '
+          expect(3, 'error', 'id must be a non-empty string', m, read, 'whitespace clause id')
+          # The overlap check must accept clauses that do not overlap: disjoint
+          # verbs, prefixes that do not extend one another, disjoint
+          # counterparties. Each pair is a permit above a deny, the shape the
+          # check exists to refuse when they DO overlap.
+          def mandate_with(clauses):
+              m = json.loads(json.dumps(base_m)); m['clauses'] = clauses; return m
+          accepted = [
+              [{"id": "p", "effect": "permit", "match": {"kind": ["file"], "verb": ["read"], "target_prefix": ["/srv/tickets/"]}},
+               {"id": "d", "effect": "deny", "match": {"kind": ["file"], "verb": ["write"], "target_prefix": ["/srv/tickets/"]}}],
+              [{"id": "p", "effect": "permit", "match": {"kind": ["file"], "target_prefix": ["/srv/tickets/"]}},
+               {"id": "d", "effect": "deny", "match": {"kind": ["file"], "target_prefix": ["/srv/archive/"]}}],
+              [{"id": "p", "effect": "permit", "match": {"kind": ["transaction"], "counterparty": ["a"]}},
+               {"id": "d", "effect": "deny", "match": {"kind": ["transaction"], "counterparty": ["b"]}}],
+          ]
+          accepted.append(
+              [{"id": "p", "effect": "permit", "match": {"kind": ["file"], "target_prefix": ["/srv/tickets/"]}},
+               {"id": "d", "effect": "deny", "match": {"kind": ["network"], "target_prefix": ["/srv/tickets/"]}}])
+          for clauses in accepted:
+              code, out = run(mandate_with(clauses), read)
+              assert code != 3, ('non-overlapping clauses were refused', clauses, out)
+          # A condition present on only one clause of a pair narrows nothing
+          # between them: the pair overlaps, and must be refused as such, not
+          # crashed on.
+          for clauses in [
+              [{"id": "p", "effect": "permit", "match": {"kind": ["file"], "target_prefix": ["/srv/tickets/"]}},
+               {"id": "d", "effect": "deny", "match": {"kind": ["file"]}}],
+              [{"id": "p", "effect": "permit", "match": {"kind": ["file"]}},
+               {"id": "d", "effect": "deny", "match": {"kind": ["file"], "target_prefix": ["/srv/tickets/"]}}],
+              [{"id": "p", "effect": "permit", "match": {"kind": ["transaction"], "counterparty": ["a"]}},
+               {"id": "d", "effect": "deny", "match": {"kind": ["transaction"]}}],
+              [{"id": "p", "effect": "permit", "match": {"kind": ["transaction"]}},
+               {"id": "d", "effect": "deny", "match": {"kind": ["transaction"], "counterparty": ["a"]}}],
+          ]:
+              code, out = run(mandate_with(clauses), read)
+              assert code == 3 and ('unreachable' in out['reason'] or 'shadow' in out['reason']), ('one-sided overlap not refused as overlap', clauses, out)
+          # And the same shapes with the difference removed are refused.
+          for clauses in accepted:
+              overlapping = json.loads(json.dumps(clauses))
+              overlapping[1]['match'] = json.loads(json.dumps(overlapping[0]['match']))
+              code, out = run(mandate_with(overlapping), read)
+              assert code == 3 and ('unreachable' in out['reason'] or 'shadow' in out['reason']), ('overlap not refused', clauses, out)
+          # The outcome names what it relied on: the mandate, the clause, and
+          # the clause's note when it has one.
+          code, out = run(base_m, read)
+          assert code == 0 and out['mandate_ref'] == base_m['mandate_id'] and out['clause'] == 'c1-read-tickets', out
+          assert out.get('clause_note') == [c for c in base_m['clauses'] if c['id'] == 'c1-read-tickets'][0]['note'], out
+          # A missing or unreadable mandate is named as such, not as an
+          # internal fault.
+          for path, part in ((os.path.join(d, 'absent.json'), 'no mandate at'), (d, 'cannot read the mandate')):
+              r = subprocess.run(['python3', S + '/check_action.py', '--mandate', path, '--action', A], capture_output=True, text=True)
+              out = json.loads(r.stdout)
+              assert r.returncode == 3 and out['outcome'] == 'error' and part in out['reason'], (path, out)
+          # Amounts: NaN is not a finite decimal, a negative amount would
+          # satisfy any ceiling, and zero is an amount like any other.
+          expect(3, 'error', 'not a finite decimal', base_m, with_op(refund, amount={'value': 'NaN', 'currency': 'USD'}), 'NaN amount')
+          expect(3, 'error', 'is negative', base_m, with_op(refund, amount={'value': '-1.00', 'currency': 'USD'}), 'negative amount')
+          expect(2, 'escalate', '', base_m, with_op(refund, amount={'value': '0.00', 'currency': 'USD'}), 'zero amount')
+          # An origin-only prefix is refused for its missing boundary, by name.
+          m = json.loads(json.dumps(base_m)); m['clauses'][2]['match']['target_prefix'] = ['https://tickets.internal.example']
+          expect(3, 'error', 'no path boundary', m, read, 'origin-only prefix')
+          # A mandate file that parses but is not an object; a leap second,
+          # valid RFC 3339, accepted; an amount that is not a decimal; a
+          # schema file that is missing; a clause id used twice; a bare
+          # hostname prefix with no boundary at all.
+          path = os.path.join(d, 'array.json'); open(path, 'w').write('[]')
+          r = subprocess.run(['python3', S + '/check_action.py', '--mandate', path, '--action', A], capture_output=True, text=True)
+          out = json.loads(r.stdout); assert r.returncode == 3 and 'object' in out['reason'], out
+          m = json.loads(json.dumps(base_m)); m['not_valid_after'] = '2999-12-31T23:59:60Z'
+          expect(0, 'permit', '', m, read, 'leap-second expiry accepted')
+          expect(3, 'error', 'is not a decimal', base_m, with_op(refund, amount={'value': 'abc', 'currency': 'USD'}), 'non-decimal amount')
+          import shutil
+          copy = os.path.join(d, 'noschema'); shutil.copytree('skills', os.path.join(copy, 'skills'))
+          os.remove(os.path.join(copy, 'skills', 'hanria', 'schema', 'mandate.schema.json'))
+          r = subprocess.run(['python3', os.path.join(copy, 'skills', 'hanria', 'scripts', 'check_action.py'), '--mandate', M, '--action', A], capture_output=True, text=True)
+          out = json.loads(r.stdout); assert r.returncode == 3 and 'cannot read the mandate schema' in out['reason'], out
+          m = json.loads(json.dumps(base_m)); m['clauses'][1]['id'] = m['clauses'][0]['id']
+          expect(3, 'error', 'duplicate clause id', m, read, 'duplicate clause id')
+          m = json.loads(json.dumps(base_m)); m['clauses'][2]['match']['target_prefix'] = ['tickets.internal.example']
+          expect(3, 'error', 'boundary', m, read, 'bare hostname prefix')
+          # A ceiling that is not a finite decimal, or whose currency is empty,
+          # is refused when the mandate is validated, naming the clause's
+          # field, not later when a request happens to reach the clause.
+          m = json.loads(json.dumps(base_m)); m['clauses'][3]['match']['max_amount']['value'] = 'NaN'
+          expect(3, 'error', 'match.max_amount.value', m, read, 'NaN ceiling')
+          m = json.loads(json.dumps(base_m)); m['clauses'][3]['match']['max_amount']['currency'] = ''
+          expect(3, 'error', 'currency', m, read, 'empty ceiling currency')
+          # An amount exactly at the ceiling is within it. An expiry an hour
+          # ahead, written in a negative offset, is still ahead: the evaluator
+          # must not reinterpret an offset-carrying time as UTC.
+          expect(2, 'escalate', '', base_m, with_op(refund, amount={'value': '50.00', 'currency': 'USD'}), 'amount at the ceiling')
+          import datetime
+          ahead = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=1)).astimezone(datetime.timezone(datetime.timedelta(hours=-5)))
+          m = json.loads(json.dumps(base_m)); m['not_valid_after'] = ahead.isoformat(timespec='seconds')
+          expect(0, 'permit', '', m, read, 'expiry ahead in a negative offset')
+          # Two denials that overlap do not shadow one another: the overlap
+          # check applies between clauses of different effect.
+          m = json.loads(json.dumps(base_m))
+          m['clauses'].insert(1, {"id": "d2", "effect": "deny", "match": {"kind": ["file"], "target_prefix": ["/srv/tickets/.secrets/keys/"]}})
+          code, out = run(m, read)
+          assert code == 0 and out['outcome'] == 'permit', ('overlapping denials were refused', out)
+          # A tier is a higher ceiling below a lower one, in the same currency.
+          # A later ceiling in another currency governs other requests and is
+          # reachable; a later ceiling that is lower in the same currency is
+          # not, and must be refused as such.
+          m = json.loads(json.dumps(base_m))
+          m['clauses'].append({"id": "c5-eur", "effect": "escalate", "match": {"kind": ["transaction"], "verb": ["refund"], "counterparty": ["ticket-customer"], "max_amount": {"value": "100.00", "currency": "EUR"}}})
+          code, out = run(m, read); assert code == 0, ('a ceiling in another currency was refused', out)
+          m = json.loads(json.dumps(base_m))
+          m['clauses'].append({"id": "c5-lower", "effect": "escalate", "match": {"kind": ["transaction"], "verb": ["refund"], "counterparty": ["ticket-customer"], "max_amount": {"value": "30.00", "currency": "USD"}}})
+          expect(3, 'error', 'unreachable', m, read, 'lower later ceiling')
+          m['clauses'][-1]['match']['max_amount']['value'] = '50.00'
+          expect(3, 'error', 'unreachable', m, read, 'equal later ceiling')
+          # A credential given as an assignment, with no token shape, is still
+          # credential material: in a mandate note it is refused, in a request
+          # it is not permitted.
+          m = json.loads(json.dumps(base_m)); m['clauses'][1]['note'] = 'use password: hunter2 for the store'
+          expect(3, 'error', 'credential material', m, read, 'assignment-shaped credential in a mandate')
+          a = json.loads(json.dumps(read)); a['justification'] = 'api_key = abc123 needed for the read'
+          code, out = run(base_m, a)
+          assert out['outcome'] != 'permit' and code != 0, ('assignment-shaped credential in a request was permitted', out)
+          # An empty string in a verb or counterparty list matches everything
+          # and is refused by the list check itself; the schema types the
+          # items as strings and no more.
+          m = json.loads(json.dumps(base_m)); m['clauses'][1]['match']['verb'] = ['']
+          expect(3, 'error', 'empty string', m, read, 'empty verb')
+          m = json.loads(json.dumps(base_m)); m['clauses'][3]['match']['counterparty'] = ['']
+          expect(3, 'error', 'empty string', m, read, 'empty counterparty')
+          print('every match condition and hand check decides on its own')
+          PY
+
+      - name: The log's digest, refusals, and status output are pinned
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, sys, tempfile
+          # A mutation run of record.py found the digest's domain tag and
+          # previous-hash inputs unpinned (append and verify share the function,
+          # so any change verifies against itself), three refusals whose
+          # reasons no step read, the missing-digest refusal, and an append
+          # whose status output nothing checked.
+          sys.path.insert(0, 'skills/hanria/scripts')
+          import record
+          S = 'skills/hanria/scripts'
+          M = 'skills/hanria/examples/mandate.example.json'
+          A = 'skills/hanria/examples/action.read-ticket.json'
+          # Frozen digest vectors: the tag and the previous digest are inputs.
+          assert record.digest(record.GENESIS, b'x') == '54b3023f246bd2ee34c55a30107486ff38527bafb4a5cb078ae68fbee1d2d3a2'
+          assert record.digest('ab' * 32, b'{"body":1}') == '7d48b22360af5482aa3ff6efb125e349408bd68a2ac714497f4f3c36e18aa69f'
+          d = tempfile.mkdtemp()
+          log, o = os.path.join(d, 'log.jsonl'), os.path.join(d, 'o.json')
+          r = subprocess.run(['python3', S + '/check_action.py', '--mandate', M, '--action', A], capture_output=True, text=True)
+          open(o, 'w').write(r.stdout)
+          def verify(*extra):
+              r = subprocess.run(['python3', S + '/record.py', 'verify', '--log', log] + list(extra), capture_output=True, text=True)
+              return r.returncode, json.loads(r.stdout)
+          def append():
+              r = subprocess.run(['python3', S + '/record.py', 'append', '--log', log, '--action', A, '--outcome', o], capture_output=True, text=True)
+              return r.returncode, r.stdout
+          code, out = append()
+          status = json.loads(out)
+          assert code == 0 and status['status'] == 'appended' and status['index'] == 0, out
+          head = json.load(open(log + '.head'))
+          assert status['digest'] == head['head'] and head['count'] == 1, (status, head)
+          code, out = verify(); assert code == 0 and out['status'] == 'intact', out
+          # The log line is the canonical serialization of its entry: sorted
+          # keys, compact separators, one line.
+          line = open(log).read()
+          assert line == json.dumps(json.loads(line), sort_keys=True, separators=(',', ':')) + '\n', line
+          # And the head file is exactly its JSON and one newline.
+          assert open(log + '.head').read() == json.dumps(head) + '\n', open(log + '.head').read()
+          # Rebuilt: same count, different content. Only the retained head
+          # tells, and the reason must say so.
+          entry = json.loads(open(log).read())
+          entry['body']['justification'] = 'rewritten'
+          rebuilt = dict(entry); rebuilt['digest'] = record.digest(record.GENESIS, record.canonical(entry['body']))
+          original = open(log).read()
+          open(log, 'w').write(json.dumps(rebuilt, sort_keys=True, separators=(',', ':')) + '\n')
+          code, out = verify(); assert code == 1 and 'not the expected' in out['reason'], out
+          open(log, 'w').write(original)
+          # Tampered head count with the right digest: the count is checked
+          # on its own.
+          json.dump({'head': head['head'], 'count': 2}, open(log + '.head', 'w'))
+          code, out = verify(); assert code == 1 and 'were recorded' in out['reason'], out
+          json.dump(head, open(log + '.head', 'w'))
+          # Emptied log under a head that records entries: the reason names
+          # the truncation to nothing.
+          open(log, 'w').write('')
+          code, out = verify(); assert code == 1 and out['at'] == 0 and 'the log is empty but the head file records' in out['reason'], out
+          # And an append over that truncated log refuses rather than writing
+          # a fresh chain on top of the evidence.
+          r = subprocess.run(['python3', S + '/record.py', 'append', '--log', log, '--action', A, '--outcome', o], capture_output=True, text=True)
+          assert r.returncode == 1 and json.loads(r.stdout)['status'] == 'broken' and open(log).read() == '', r.stdout
+          open(log, 'w').write(original)
+          # A head file that is JSON but not a head object is an unreadable
+          # pin: broken, by that name, not a crash.
+          json.dump({'x': 1}, open(log + '.head', 'w'))
+          code, out = verify(); assert code == 1 and 'could not be read' in out['reason'], out
+          json.dump(head, open(log + '.head', 'w'))
+          # The index and predecessor fields sit outside the digest; each is
+          # checked on its own.
+          entry = json.loads(open(log).read())
+          for field, value, part in (('index', 5, 'claims index'), ('previous', 'ab' * 32, 'names predecessor')):
+              tampered = dict(entry); tampered[field] = value
+              open(log, 'w').write(json.dumps(tampered, sort_keys=True, separators=(',', ':')) + '\n')
+              code, out = verify(); assert code == 1 and part in out['reason'], (field, out)
+          open(log, 'w').write(original)
+          # A missing action file is named as such; an outcome that does not
+          # conform to its schema is refused before anything is written.
+          r = subprocess.run(['python3', S + '/record.py', 'append', '--log', log, '--action', os.path.join(d, 'absent.json'), '--outcome', o], capture_output=True, text=True)
+          assert r.returncode == 3 and 'no action file at' in json.loads(r.stdout)['reason'], r.stdout
+          before = open(log).read()
+          bad = os.path.join(d, 'bad-outcome.json'); json.dump({'schema_version': '0.1-draft', 'outcome': 'permit', 'action_digest': 'x'}, open(bad, 'w'))
+          r = subprocess.run(['python3', S + '/record.py', 'append', '--log', log, '--action', A, '--outcome', bad], capture_output=True, text=True)
+          why = json.loads(r.stdout)['reason']
+          assert r.returncode == 3 and ('schema' in why.lower() or 'reason' in why), r.stdout
+          assert r.returncode == 3 and open(log).read() == before, ('a schema-invalid outcome was recorded', r.stdout)
+          # A blank line between entries is skipped; an absent log is empty
+          # and exit 0; an entry missing a field, carrying an extra one, or
+          # altered in its body is broken by the matching name.
+          open(log, 'w').write('\n' + original + '\n\n')
+          code, out = verify(); assert code == 0 and out['status'] == 'intact', out
+          open(log, 'w').write(original)
+          r = subprocess.run(['python3', S + '/record.py', 'verify', '--log', os.path.join(d, 'absent.jsonl')], capture_output=True, text=True)
+          assert r.returncode == 0 and json.loads(r.stdout) == {'status': 'empty', 'entries': 0}, r.stdout
+          entry = json.loads(open(log).read())
+          missing = {k: v for k, v in entry.items() if k != 'previous'}
+          open(log, 'w').write(json.dumps(missing, sort_keys=True, separators=(',', ':')) + '\n')
+          code, out = verify(); assert code == 1 and 'is missing' in out['reason'], out
+          extra = dict(entry); extra['note'] = 'unverified'
+          open(log, 'w').write(json.dumps(extra, sort_keys=True, separators=(',', ':')) + '\n')
+          code, out = verify(); assert code == 1 and 'does not cover' in out['reason'], out
+          altered = json.loads(json.dumps(entry)); altered['body']['justification'] = 'altered'
+          open(log, 'w').write(json.dumps(altered, sort_keys=True, separators=(',', ':')) + '\n')
+          code, out = verify(); assert code == 1 and 'does not match its digest' in out['reason'], out
+          open(log, 'w').write(original)
+          # A malformed line is named by its number, counting every line; a
+          # head file that records zero entries over an empty log is empty,
+          # not truncated.
+          open(log, 'w').write(original + 'not json\n')
+          code, out = verify(); assert code == 3 and out['status'] == 'error' and 'line 2 of' in out['reason'], out
+          # Appending to a broken log refuses, and says why: the verification
+          # it ran is reported, not swallowed.
+          open(log, 'w').write(json.dumps(altered, sort_keys=True, separators=(',', ':')) + '\n')
+          r = subprocess.run(['python3', S + '/record.py', 'append', '--log', log, '--action', A, '--outcome', o], capture_output=True, text=True)
+          assert r.returncode == 1 and json.loads(r.stdout)['status'] == 'broken', r.stdout
+          open(log, 'w').write(''); json.dump({'head': record.GENESIS, 'count': 0}, open(log + '.head', 'w'))
+          code, out = verify(); assert code == 0 and out['status'] == 'empty', out
+          open(log, 'w').write(original); json.dump(head, open(log + '.head', 'w'))
+          # A log path that is a directory is an error, exit 3, with a status
+          # object.
+          r = subprocess.run(['python3', S + '/record.py', 'verify', '--log', d], capture_output=True, text=True)
+          assert r.returncode == 3 and json.loads(r.stdout)['status'] == 'error', (r.returncode, r.stdout)
+          # An outcome with no action_digest describes no request: append
+          # refuses it, and records nothing.
+          before = open(log).read()
+          json.dump({'schema_version': '0.1-draft', 'outcome': 'error', 'reason': 'mandate unreadable'}, open(o, 'w'))
+          r = subprocess.run(['python3', S + '/record.py', 'append', '--log', log, '--action', A, '--outcome', o], capture_output=True, text=True)
+          assert r.returncode == 3 and 'carries no action_digest' in json.loads(r.stdout)['reason'], r.stdout
+          assert open(log).read() == before
+          print("the log's digest, refusals, and status output are pinned")
+          PY
+
+      - name: Detection reports present and unresponsive endpoints, with their exit codes
+        run: |
+          python3 - <<'PY'
+          import json, os, socket, subprocess, tempfile, threading, time
+          # A mutation run found only the absent path covered. A listening
+          # socket is present (exit 0, the endpoint named); a socket file with
+          # nothing behind it is unresponsive (exit 2, the endpoint listed in
+          # full, including a colon in its path, which the split must keep).
+          S = 'skills/hanria/scripts/detect_runtime.py'
+          d = tempfile.mkdtemp()
+          path = os.path.join(d, 'a:b.sock')
+          server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+          server.bind(path); server.listen(1)
+          def accept():
+              try:
+                  conn, _ = server.accept(); conn.close()
+              except OSError:
+                  pass
+          threading.Thread(target=accept, daemon=True).start()
+          env = dict(os.environ, HANRIA_SOCKET=path)
+          r = subprocess.run(['python3', S], capture_output=True, text=True, env=env)
+          out = json.loads(r.stdout)
+          assert r.returncode == 0 and out['status'] == 'present' and out['endpoint'] == path, (r.returncode, out)
+          server.close()
+          # The socket file remains; nothing listens.
+          assert os.path.exists(path)
+          r = subprocess.run(['python3', S], capture_output=True, text=True, env=env)
+          out = json.loads(r.stdout)
+          assert r.returncode == 2 and out['status'] == 'error', (r.returncode, out)
+          assert out['endpoints_found_but_unresponsive'] == [path], out
+          assert 'Do NOT proceed' in out['agent_instruction'], out
+          # And absent, with the probe pointed at a path that does not exist.
+          env['HANRIA_SOCKET'] = os.path.join(d, 'none.sock')
+          r = subprocess.run(['python3', S], capture_output=True, text=True, env=env)
+          out = json.loads(r.stdout)
+          assert r.returncode == 1 and out['status'] == 'absent', (r.returncode, out)
+          assert env['HANRIA_SOCKET'] in out['searched'], out
+          print('detection reports present, unresponsive, and absent with their exit codes')
           PY

@@ -217,7 +217,7 @@ def verify(path, expect_head=None):
                 "No retained head was available, so terminal truncation could "
                 "not be ruled out. Keep %s, or pass --expect-head."
                 % head_path(path)}, indent=2))
-    return 0
+    return OK
 
 
 @contextlib.contextmanager
@@ -326,7 +326,7 @@ def _append(path, action_path, outcome_path):
     print(json.dumps({"status": "appended", "index": index,
                       "digest": entry["digest"],
                       "head": head_path(path)}, indent=2))
-    return 0
+    return OK
 
 
 def _die(reason):

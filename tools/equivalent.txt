@@ -1,0 +1,115 @@
+skills/hanria/scripts/check_action.py:34:1: delete call to sys.path.insert
+skills/hanria/scripts/check_action.py:34:17: replace 0 with 1
+skills/hanria/scripts/check_action.py:602:5: replace if condition with False
+skills/hanria/scripts/check_action.py:615:5: replace if condition with False
+skills/hanria/scripts/detect_runtime.py:26:9: delete call to s.settimeout
+skills/hanria/scripts/detect_runtime.py:28:9: delete call to s.close
+skills/hanria/scripts/detect_runtime.py:50:38: replace 2 with 3
+skills/hanria/scripts/detect_runtime.py:57:38: replace 2 with 3
+skills/hanria/scripts/detect_runtime.py:67:34: replace 2 with 3
+skills/hanria/scripts/record.py:43:1: delete call to sys.path.insert
+skills/hanria/scripts/record.py:43:17: replace 0 with 1
+skills/hanria/scripts/check_action.py:182:5: replace if condition with False
+skills/hanria/scripts/check_action.py:182:8: replace or with and
+skills/hanria/scripts/check_action.py:183:9: replace raise with pass
+skills/hanria/scripts/_schema.py:127:16: replace > with >=
+skills/hanria/scripts/_schema.py:157:5: delete call to check_bounds
+skills/hanria/scripts/_schema.py:195:9: replace raise with pass
+skills/hanria/scripts/_schema.py:238:20: replace True with False
+skills/hanria/scripts/_schema.py:257:13: replace if condition with False
+skills/hanria/scripts/_schema.py:258:17: replace raise with pass
+skills/hanria/scripts/_schema.py:272:71: replace True with False
+skills/hanria/scripts/_schema.py:286:68: replace True with False
+skills/hanria/scripts/_schema.py:308:9: delete call to os.close
+skills/hanria/scripts/_schema.py:333:9: delete call to sys.stderr.flush
+skills/hanria/scripts/_schema.py:349:9: delete call to file.flush
+skills/hanria/scripts/_schema.py:391:59: replace 2 with 3
+skills/hanria/scripts/check_action.py:162:5: replace if condition with False
+skills/hanria/scripts/check_action.py:265:5: replace if condition with False
+skills/hanria/scripts/check_action.py:361:5: replace if condition with False
+skills/hanria/scripts/check_action.py:365:5: replace if condition with False
+skills/hanria/scripts/check_action.py:372:5: replace if condition with False
+skills/hanria/scripts/check_action.py:376:5: replace if condition with False
+skills/hanria/scripts/check_action.py:380:5: replace if condition with False
+skills/hanria/scripts/check_action.py:620:5: replace if condition with False
+skills/hanria/scripts/check_action.py:623:5: replace if condition with False
+skills/hanria/scripts/check_action.py:645:5: replace if condition with False
+skills/hanria/scripts/_schema.py:319:13: delete call to os.close
+skills/hanria/scripts/check_action.py:162:8: replace or with and
+skills/hanria/scripts/check_action.py:163:9: replace raise with pass
+skills/hanria/scripts/check_action.py:265:8: replace or with and
+skills/hanria/scripts/check_action.py:266:9: replace raise with pass
+skills/hanria/scripts/check_action.py:269:9: replace if condition with False
+skills/hanria/scripts/check_action.py:353:9: replace if condition with False
+skills/hanria/scripts/check_action.py:362:9: replace raise with pass
+skills/hanria/scripts/check_action.py:369:9: replace raise with pass
+skills/hanria/scripts/check_action.py:373:9: replace raise with pass
+skills/hanria/scripts/check_action.py:377:9: replace raise with pass
+skills/hanria/scripts/check_action.py:380:8: replace or with and
+skills/hanria/scripts/check_action.py:381:9: replace raise with pass
+skills/hanria/scripts/check_action.py:384:9: replace if condition with False
+skills/hanria/scripts/check_action.py:390:9: replace if condition with False
+skills/hanria/scripts/check_action.py:396:9: replace if condition with False
+skills/hanria/scripts/check_action.py:400:9: replace if condition with False
+skills/hanria/scripts/check_action.py:405:9: replace if condition with False
+skills/hanria/scripts/check_action.py:408:9: replace if condition with False
+skills/hanria/scripts/check_action.py:440:9: replace if condition with False
+skills/hanria/scripts/check_action.py:651:5: replace if condition with False
+skills/hanria/scripts/check_action.py:655:5: replace if condition with False
+skills/hanria/scripts/check_action.py:427:13: replace if condition with False
+skills/hanria/scripts/check_action.py:428:17: replace raise with pass
+skills/hanria/scripts/check_action.py:431:17: replace if condition with False
+skills/hanria/scripts/check_action.py:432:21: replace raise with pass
+skills/hanria/scripts/check_action.py:165:105: replace 1 with 2
+skills/hanria/scripts/check_action.py:172:9: replace raise with pass
+skills/hanria/scripts/check_action.py:270:13: replace raise with pass
+skills/hanria/scripts/check_action.py:354:13: replace raise with pass
+skills/hanria/scripts/check_action.py:385:13: replace raise with pass
+skills/hanria/scripts/check_action.py:387:13: replace if condition with False
+skills/hanria/scripts/check_action.py:391:13: replace raise with pass
+skills/hanria/scripts/check_action.py:397:13: replace raise with pass
+skills/hanria/scripts/check_action.py:401:13: replace raise with pass
+skills/hanria/scripts/check_action.py:406:13: replace raise with pass
+skills/hanria/scripts/check_action.py:596:9: replace if condition with False
+skills/hanria/scripts/check_action.py:626:9: replace if condition with False
+skills/hanria/scripts/check_action.py:409:13: replace raise with pass
+skills/hanria/scripts/check_action.py:416:13: replace if condition with False
+skills/hanria/scripts/check_action.py:441:13: replace raise with pass
+skills/hanria/scripts/check_action.py:420:13: replace if condition with False
+skills/hanria/scripts/check_action.py:598:12: replace >= with >
+skills/hanria/scripts/check_action.py:388:17: replace raise with pass
+skills/hanria/scripts/check_action.py:417:17: replace raise with pass
+skills/hanria/scripts/check_action.py:746:75: replace 3 with 4
+skills/hanria/scripts/check_action.py:712:75: replace 2 with 3
+skills/hanria/scripts/check_action.py:734:62: replace 2 with 3
+skills/hanria/scripts/check_action.py:745:37: replace 2 with 3
+skills/hanria/scripts/check_action.py:742:59: replace 2 with 3
+skills/hanria/scripts/record.py:237:9: delete call to fcntl.flock
+skills/hanria/scripts/record.py:238:9: delete call to lock.close
+skills/hanria/scripts/record.py:219:44: replace 2 with 3
+skills/hanria/scripts/record.py:137:50: replace 2 with 3
+skills/hanria/scripts/record.py:293:59: replace > with >=
+skills/hanria/scripts/record.py:328:56: replace 2 with 3
+skills/hanria/scripts/record.py:333:68: replace 2 with 3
+skills/hanria/scripts/record.py:148:68: replace 2 with 3
+skills/hanria/scripts/record.py:204:65: replace 2 with 3
+skills/hanria/scripts/record.py:210:81: replace 2 with 3
+skills/hanria/scripts/record.py:146:54: replace 2 with 3
+skills/hanria/scripts/record.py:168:80: replace 2 with 3
+skills/hanria/scripts/record.py:174:58: replace 2 with 3
+skills/hanria/scripts/record.py:181:27: replace 2 with 3
+skills/hanria/scripts/record.py:188:67: replace 2 with 3
+skills/hanria/scripts/record.py:293:79: replace 0 with 1
+skills/hanria/scripts/record.py:157:70: replace 2 with 3
+skills/hanria/scripts/record.py:283:51: replace 16 with 17
+skills/hanria/scripts/record.py:378:74: replace 2 with 3
+skills/hanria/scripts/record.py:385:79: replace 2 with 3
+skills/hanria/scripts/record.py:389:83: replace 2 with 3
+skills/hanria/scripts/record.py:180:65: replace 16 with 17
+skills/hanria/scripts/record.py:180:80: replace 16 with 17
+skills/hanria/scripts/record.py:204:36: replace 16 with 17
+skills/hanria/scripts/record.py:204:51: replace 16 with 17
+skills/hanria/scripts/record.py:283:66: replace 16 with 17
+skills/hanria/scripts/record.py:141:43: replace 0 with 1
+skills/hanria/scripts/record.py:381:9: replace if condition with False
+skills/hanria/scripts/record.py:382:13: replace raise with pass
