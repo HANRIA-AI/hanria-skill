@@ -140,7 +140,7 @@ this skill gives you enforcement, that claim is false.**
 ## What is not built at all
 
 No signatures, no published record format, no independent verifier, no persistence beyond a local
-file. No packaged runtime, no daemon, no runtime CLI, no download. No sandboxing or process
+file. No packaged runtime, no runtime CLI, no download, and no daemon you can obtain. No sandboxing or process
 confinement. No confused-deputy or prompt-injection test suite. No third-party audit, certification,
 or attestation. No release date for any of it.
 
