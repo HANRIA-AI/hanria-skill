@@ -222,8 +222,11 @@ def run_steps(tree, steps, step_timeout):
         if result is None:
             return "timeout", name
         if result.returncode != 0:
-            run_steps.last_failure = (out or b"").decode("utf-8", "replace")[-1500:] + \
-                (err or b"").decode("utf-8", "replace")[-1500:]
+            # The whole of both streams: a kill that is really the step
+            # failing for its own reasons is only explicable from all of it.
+            run_steps.last_failure = ("--- stdout ---\n" + (out or b"").decode("utf-8", "replace")
+                                      + "\n--- stderr ---\n" + (err or b"").decode("utf-8", "replace")
+                                      + "\n--- exit %d ---\n" % result.returncode)
             return "caught", name
     return "survived", None
 

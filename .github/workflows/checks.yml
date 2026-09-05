@@ -18,7 +18,7 @@ jobs:
           out=$(python3 skills/hanria/scripts/detect_runtime.py); code=$?
           echo "$out"
           test "$code" = "1" || { echo "expected exit 1 (absent), got $code"; exit 1; }
-          echo "$out" | grep -q '"status": "absent"' || { echo "expected status absent"; exit 1; }
+          grep -q '"status": "absent"' <<<"$out" || { echo "expected status absent"; exit 1; }
       - name: plugin.json conforms to Agent Plugins 1.0.0
         run: |
           python3 - <<'PY'
@@ -53,7 +53,7 @@ jobs:
             out=$(python3 skills/hanria/scripts/check_action.py --mandate $M --action "$1"); code=$?
             echo "$out"
             test "$code" = "$2" || { echo "$1: expected exit $2, got $code"; exit 1; }
-            echo "$out" | grep -q "\"outcome\": \"$3\"" || { echo "$1: expected $3"; exit 1; }
+            grep -q "\"outcome\": \"$3\"" <<<"$out" || { echo "$1: expected $3"; exit 1; }
           }
           check skills/hanria/examples/action.read-ticket.json 0 permit
           check skills/hanria/examples/action.read-home.json 1 deny
@@ -66,7 +66,7 @@ jobs:
             --action skills/hanria/examples/action.refund-too-large.json); code=$?
           echo "$out"
           test "$code" = "1" || { echo "expected deny (exit 1), got $code"; exit 1; }
-          echo "$out" | grep -q 'exceeds the ceiling' || { echo "expected the ceiling named in the reason"; exit 1; }
+          grep -q 'exceeds the ceiling' <<<"$out" || { echo "expected the ceiling named in the reason"; exit 1; }
       - name: A request carrying a credential is denied by the checker too
         run: |
           set +e
@@ -75,7 +75,7 @@ jobs:
             --action skills/hanria/examples/rejected-secret.json); code=$?
           echo "$out"
           test "$code" = "1" || { echo "expected deny (exit 1), got $code"; exit 1; }
-          echo "$out" | grep -q 'credential' || exit 1
+          grep -q 'credential' <<<"$out" || exit 1
       - name: Evaluation fails closed on an expired or malformed mandate
         run: |
           set +e
@@ -89,7 +89,7 @@ jobs:
             --action skills/hanria/examples/action.read-ticket.json); code=$?
           echo "$out"
           test "$code" = "3" || { echo "malformed mandate must error, got $code"; exit 1; }
-          echo "$out" | grep -qv '"outcome": "permit"' || { echo "must never permit"; exit 1; }
+          grep -qv '"outcome": "permit"' <<<"$out" || { echo "must never permit"; exit 1; }
       - name: The log chain detects alteration and deletion
         run: |
           set +e
@@ -141,7 +141,7 @@ jobs:
                   --action skills/hanria/examples/action.read-ticket.json); code=$?
           echo "$out"
           test "$code" = "3" || { echo "unknown match key must error, got $code"; exit 1; }
-          echo "$out" | grep -qv '"outcome": "permit"' || { echo "must never permit"; exit 1; }
+          grep -qv '"outcome": "permit"' <<<"$out" || { echo "must never permit"; exit 1; }
       - name: A string where a list belongs is refused, not iterated per character
         run: |
           set +e
@@ -210,7 +210,7 @@ jobs:
             --action skills/hanria/examples/action.read-ticket.json); code=$?
           echo "$out"
           test "$code" = "3" || { echo "a shadowed denial must error, got $code"; exit 1; }
-          echo "$out" | grep -q 'unreachable' || { echo "expected the reason to name unreachability"; exit 1; }
+          grep -q 'unreachable' <<<"$out" || { echo "expected the reason to name unreachability"; exit 1; }
       - name: The shipped example mandate actually protects what its notes claim
         run: |
           set +e
@@ -228,7 +228,7 @@ jobs:
             --mandate skills/hanria/examples/mandate.example.json --action /tmp/tr.json); code=$?
           echo "$out"
           test "$code" = "1" || { echo "traversal must deny, got $code"; exit 1; }
-          echo "$out" | grep -q 'parent-directory' || exit 1
+          grep -q 'parent-directory' <<<"$out" || exit 1
       - name: An unrecognized request field does not permit
         run: |
           set +e
@@ -570,7 +570,7 @@ jobs:
             --action skills/hanria/examples/action.read-ticket.json); code=$?
           echo "$out"
           test "$code" = "1" || { echo "a past leap-second expiry must deny, got $code"; exit 1; }
-          echo "$out" | grep -q 'expired' || { echo "expected an expiry denial"; exit 1; }
+          grep -q 'expired' <<<"$out" || { echo "expected an expiry denial"; exit 1; }
       - name: A prefix with no boundary is refused, not documented
         run: |
           set +e
@@ -595,7 +595,7 @@ jobs:
             --action skills/hanria/examples/action.read-ticket.json); code=$?
           echo "$out"
           test "$code" = "3" || { echo "a credential in the mandate must be refused, got $code"; exit 1; }
-          echo "$out" | grep -q 'Bearer abc' && { echo "the credential was echoed into the outcome"; exit 1; }
+          grep -q 'Bearer abc' <<<"$out" && { echo "the credential was echoed into the outcome"; exit 1; }
           echo "mandate credential refused and not echoed"
       - name: A deny prefix is not bypassed by Unicode normalization form
         run: |
@@ -622,7 +622,7 @@ jobs:
           PY
           out=$(python3 $S/check_action.py --mandate /tmp/nfc-mandate.json --action /tmp/nfd-action.json); code=$?
           test "$code" = "1" || { echo "NFD target under an NFC deny prefix must be denied, got $code"; echo "$out"; exit 1; }
-          echo "$out" | grep -q '"clause": "deny-secrets"' || { echo "the deny clause must be the one that applied"; echo "$out"; exit 1; }
+          grep -q '"clause": "deny-secrets"' <<<"$out" || { echo "the deny clause must be the one that applied"; echo "$out"; exit 1; }
           out=$(python3 $S/check_action.py --mandate /tmp/nfd-mandate.json --action /tmp/nfc-action.json); code=$?
           test "$code" = "0" || { echo "NFC target under an NFD permit prefix must be permitted, got $code"; echo "$out"; exit 1; }
           out=$(python3 $S/check_action.py --mandate /tmp/fw-mandate.json --action /tmp/fw-action.json); code=$?
@@ -646,15 +646,15 @@ jobs:
           w('query', [{"id":"api","effect":"permit","match":{"kind":["network"],"verb":["post"],"target_prefix":["https://tickets.internal.example/api/"]}}], 'https://tickets.internal.example/api/reply?text=hello%20world')
           PY
           run () { out=$(python3 $S/check_action.py --mandate /tmp/$1-m.json --action /tmp/$1-a.json); code=$?; }
-          run pct;   test "$code" = "1" && echo "$out" | grep -q '"clause": "deny-secrets"' || { echo "percent-encoded spelling of a denied path must be denied by the deny clause"; echo "$out"; exit 1; }
-          run pct2;  test "$code" = "1" && echo "$out" | grep -q '"clause": "deny-secrets"' || { echo "double-encoded spelling must also be denied"; echo "$out"; exit 1; }
-          run widen; test "$code" = "1" && echo "$out" | grep -q 'no clause' || { echo "a permission must not be widened by decoding: /data%2Fx.txt is not under /data/ as written"; echo "$out"; exit 1; }
-          run esc;   test "$code" = "2" && echo "$out" | grep -q '"clause": "ask"' || { echo "an escalation must match the decoded spelling"; echo "$out"; exit 1; }
+          run pct;   test "$code" = "1" && grep -q '"clause": "deny-secrets"' <<<"$out" || { echo "percent-encoded spelling of a denied path must be denied by the deny clause"; echo "$out"; exit 1; }
+          run pct2;  test "$code" = "1" && grep -q '"clause": "deny-secrets"' <<<"$out" || { echo "double-encoded spelling must also be denied"; echo "$out"; exit 1; }
+          run widen; test "$code" = "1" && grep -q 'no clause' <<<"$out" || { echo "a permission must not be widened by decoding: /data%2Fx.txt is not under /data/ as written"; echo "$out"; exit 1; }
+          run esc;   test "$code" = "2" && grep -q '"clause": "ask"' <<<"$out" || { echo "an escalation must match the decoded spelling"; echo "$out"; exit 1; }
           python3 - <<'PY'
           import json
           a=json.load(open('/tmp/query-a.json')); a['operation']['kind']='network'; a['operation']['verb']='post'; json.dump(a,open('/tmp/query-a.json','w'))
           PY
-          run query; test "$code" = "0" && echo "$out" | grep -q '"clause": "api"' || { echo "a permitted URL with a percent-escaped query string must not be refused for the escape"; echo "$out"; exit 1; }
+          run query; test "$code" = "0" && grep -q '"clause": "api"' <<<"$out" || { echo "a permitted URL with a percent-escaped query string must not be refused for the escape"; echo "$out"; exit 1; }
           # An encoded permit above a plain deny shadows that deny for every encoded target:
           # refused at mandate validation (exit 3). Deny-first is accepted and denies.
           python3 - <<'PY'
@@ -668,9 +668,9 @@ jobs:
           a=copy.deepcopy(A); a['operation']['target']='/data/s%C3%A9crets/x.txt'; json.dump(a, open('/tmp/shadow-a.json','w'))
           PY
           out=$(python3 $S/check_action.py --mandate /tmp/shadow-m.json --action /tmp/shadow-a.json); code=$?
-          test "$code" = "3" && echo "$out" | grep -q 'unreachable' || { echo "an encoded permit above a plain deny must be refused as a shadowed denial"; echo "$out"; exit 1; }
+          test "$code" = "3" && grep -q 'unreachable' <<<"$out" || { echo "an encoded permit above a plain deny must be refused as a shadowed denial"; echo "$out"; exit 1; }
           out=$(python3 $S/check_action.py --mandate /tmp/denyfirst-m.json --action /tmp/shadow-a.json); code=$?
-          test "$code" = "1" && echo "$out" | grep -q '"clause": "deny-plain"' || { echo "deny-first must be accepted and must deny the encoded target"; echo "$out"; exit 1; }
+          test "$code" = "1" && grep -q '"clause": "deny-plain"' <<<"$out" || { echo "deny-first must be accepted and must deny the encoded target"; echo "$out"; exit 1; }
           echo "denials and escalations match any spelling; permissions only the spelling as written"
       - name: Document size and nesting are validated bounds, refused by name
         run: |
@@ -680,23 +680,23 @@ jobs:
           python3 -c "import json; d=json.load(open('$M')); d['purpose']=d.get('purpose','')+'x'*(1024*1024); open('/tmp/big.json','w').write(json.dumps(d))"
           out=$(python3 $S/check_action.py --mandate /tmp/big.json --action $A); code=$?
           test "$code" = "3" || { echo "oversized mandate must exit 3, got $code"; exit 1; }
-          echo "$out" | grep -q 'the bound is 1048576 bytes' || { echo "oversized mandate must be refused by the size bound, by name"; echo "$out"; exit 1; }
+          grep -q 'the bound is 1048576 bytes' <<<"$out" || { echo "oversized mandate must be refused by the size bound, by name"; echo "$out"; exit 1; }
           python3 -c "open('/tmp/exact.json','w').write('{' + ' '*(1048576-2) + '}')"
           test "$(wc -c < /tmp/exact.json | tr -d ' ')" = "1048576" || { echo "exact fixture is not 1048576 bytes"; exit 1; }
           out=$(python3 $S/check_action.py --mandate /tmp/exact.json --action $A); code=$?
-          echo "$out" | grep -q 'the bound is 1048576 bytes' && { echo "exactly at the size bound is within it and must not be refused by it"; exit 1; }
+          grep -q 'the bound is 1048576 bytes' <<<"$out" && { echo "exactly at the size bound is within it and must not be refused by it"; exit 1; }
           test "$code" = "3" || { echo "an exact-size empty mandate must still error on schema, got $code"; exit 1; }
           python3 -c "open('/tmp/huge.json','w').write('{' + ' '*(3*1048576) + '}')"
           out=$(python3 $S/check_action.py --mandate /tmp/huge.json --action $A); code=$?
           test "$code" = "3" || { echo "a 3 MiB mandate must exit 3, got $code"; exit 1; }
-          echo "$out" | grep -q 'is 1048577 bytes; the bound is 1048576 bytes' || { echo "a 3 MiB mandate must be refused after reading exactly bound-plus-one, not in full"; echo "$out"; exit 1; }
+          grep -q 'is 1048577 bytes; the bound is 1048576 bytes' <<<"$out" || { echo "a 3 MiB mandate must be refused after reading exactly bound-plus-one, not in full"; echo "$out"; exit 1; }
           python3 -c "open('/tmp/deep.json','w').write('['*65 + ']'*65)"
           out=$(python3 $S/check_action.py --mandate $M --action /tmp/deep.json); code=$?
           test "$code" = "3" || { echo "65-deep request must exit 3, got $code"; exit 1; }
-          echo "$out" | grep -q 'the bound is 64' || { echo "deep request must be refused by the nesting bound, by name"; echo "$out"; exit 1; }
+          grep -q 'the bound is 64' <<<"$out" || { echo "deep request must be refused by the nesting bound, by name"; echo "$out"; exit 1; }
           python3 -c "open('/tmp/deep64.json','w').write('['*64 + ']'*64)"
           out=$(python3 $S/check_action.py --mandate $M --action /tmp/deep64.json); code=$?
-          echo "$out" | grep -q 'the bound is 64' && { echo "64 deep is within the bound and must not be refused by it"; exit 1; }
+          grep -q 'the bound is 64' <<<"$out" && { echo "64 deep is within the bound and must not be refused by it"; exit 1; }
           test "$code" = "3" || { echo "64-deep non-object request must still error on shape, got $code"; exit 1; }
           python3 - <<'PY'
           import sys; sys.path.insert(0, 'skills/hanria/scripts'); import _schema
@@ -708,11 +708,11 @@ jobs:
           python3 -c "open('/tmp/long.log','w').write('{' + chr(34) + 'a' + chr(34) + ': ' + chr(34) + 'x'*(2*1048576) + chr(34) + '}' + chr(10))"; rm -f /tmp/long.log.head
           out=$(python3 $S/record.py verify --log /tmp/long.log 2>&1); code=$?
           test "$code" = "3" || { echo "an over-long log line must be an error (3), got $code"; echo "$out"; exit 1; }
-          echo "$out" | grep -q 'is longer than 1048576 bytes' || { echo "an over-long log line must be refused before the rest of it is read"; echo "$out"; exit 1; }
+          grep -q 'is longer than 1048576 bytes' <<<"$out" || { echo "an over-long log line must be refused before the rest of it is read"; echo "$out"; exit 1; }
           python3 -c "open('/tmp/hb.log','w').write('')"; python3 -c "open('/tmp/hb.log.head','w').write('{' + ' '*(3*1048576) + '}')"
           out=$(python3 $S/record.py verify --log /tmp/hb.log 2>&1); code=$?
           test "$code" = "1" || { echo "a head file past the bound must be treated as malformed (broken, exit 1), got $code"; echo "$out"; exit 1; }
-          echo "$out" | grep -q '"status": "broken"' || { echo "a head past the bound must report broken"; echo "$out"; exit 1; }
+          grep -q '"status": "broken"' <<<"$out" || { echo "a head past the bound must report broken"; echo "$out"; exit 1; }
           out=$(python3 $S/record.py verify --log /tmp/deep.log 2>&1); code=$?
           test "$code" = "3" || { echo "a too-deep log line must be an error (3), got $code"; echo "$out"; exit 1; }
           echo "size and nesting bounds are validated and named"
