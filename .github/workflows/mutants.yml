@@ -35,3 +35,10 @@ jobs:
           # documented infinite loops in tools/timeouts.txt.
           diff <(sort tools/equivalent.txt) <(sort "$RUNNER_TEMP/mutants.out/missed.txt") || { echo "survivors differ from tools/equivalent.txt"; exit 1; }
           diff <(sort tools/timeouts.txt) <(sort "$RUNNER_TEMP/mutants.out/timeout.txt" | sed 's/  \[.*//') || { echo "timeouts differ from tools/timeouts.txt"; exit 1; }
+      - name: Keep the results and each kill's evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutants.out
+          path: ${{ runner.temp }}/mutants.out
+          if-no-files-found: ignore

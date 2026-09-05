@@ -229,17 +229,27 @@ def run_steps(tree, steps, step_timeout):
 
 
 def _run_one(args):
-    mutant_name, path, mutated, steps, step_timeout = args
+    mutant_name, path, mutated, steps, step_timeout, logs = args
     tree = tempfile.mkdtemp(prefix="hanria-mutant-")
     try:
         copy_repo(tree)
         with open(os.path.join(tree, path), "w", encoding="utf-8") as fh:
             fh.write(mutated)
         started = time.time()
+        run_steps.last_failure = None
         outcome, step = run_steps(tree, steps, step_timeout)
+        if outcome == "caught" and logs:
+            # Evidence of the kill: which step, and what it printed. A kill
+            # that is really a step failing for its own reasons shows here.
+            with open(os.path.join(logs, _log_name(mutant_name)), "w", encoding="utf-8") as fh:
+                fh.write("%s\ncaught by %r\n\n%s\n" % (mutant_name, step, run_steps.last_failure or ""))
         return mutant_name, outcome, step, time.time() - started
     finally:
         shutil.rmtree(tree, ignore_errors=True)
+
+
+def _log_name(mutant_name):
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", mutant_name)[:180] + ".log"
 
 
 class _Parser(argparse.ArgumentParser):
@@ -328,7 +338,9 @@ def main():
         print("baseline passed in %.0fs" % (time.time() - started), flush=True)
 
     caught, missed, timeouts = [], [], []
-    work = [(name, path, mutated, steps, args.step_timeout) for name, path, mutated in mutants]
+    logs = os.path.join(args.output, "logs")
+    os.makedirs(logs, exist_ok=True)
+    work = [(name, path, mutated, steps, args.step_timeout, logs) for name, path, mutated in mutants]
     with concurrent.futures.ProcessPoolExecutor(max_workers=args.jobs) as pool:
         futures = [pool.submit(_run_one, item) for item in work]
         # Reported as each finishes, not in submission order: one mutant that
