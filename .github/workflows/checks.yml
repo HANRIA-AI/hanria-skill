@@ -1047,20 +1047,33 @@ jobs:
           #    that is an error (3), not a deny (1), not "chain broken" (1), not the
           #    interpreter's shutdown-flush code (120).
           #    Usage errors and --help leave main by SystemExit, past the guard's
-          #    normal flush; they must reach the same 3, not the shutdown 120.
-          for name, cmd in (("check_action", CHECK), ("record", VERIFY),
-                            ("check_action usage", CHECK[:2]),
-                            ("record usage", VERIFY[:2]),
-                            ("record verify usage", VERIFY[:3]),
-                            ("check_action --help", CHECK[:2] + ["--help"])):
-              rd, wr = os.pipe()
-              os.close(rd)
-              p = subprocess.run(cmd, stdout=wr, stderr=subprocess.PIPE, text=True)
-              os.close(wr)
-              assert p.returncode == 3, "%s with a closed stdout exited %d" % (name, p.returncode)
-              assert "Traceback" not in p.stderr and "Exception ignored" not in p.stderr, \
-                  "%s wrote a traceback on a closed stdout:\n%s" % (name, p.stderr)
-              assert "closed" in p.stderr, "%s gave no reason on stderr" % name
+          #    normal flush; argparse's own writer swallows a write error. Each
+          #    case runs buffered and unbuffered, and with stderr captured or
+          #    joined to the same closed pipe. Every shape must reach 3.
+          cases = (("check_action", CHECK), ("record", VERIFY),
+                   ("check_action usage", CHECK[:2]),
+                   ("record usage", VERIFY[:2]),
+                   ("record verify usage", VERIFY[:3]),
+                   ("check_action --help", CHECK[:2] + ["--help"]),
+                   ("record --help", VERIFY[:2] + ["--help"]))
+          for name, cmd in cases:
+              for unbuffered in (False, True):
+                  env = dict(os.environ, PYTHONUNBUFFERED="1") if unbuffered else None
+                  shape = "unbuffered" if unbuffered else "buffered"
+                  rd, wr = os.pipe()
+                  os.close(rd)
+                  p = subprocess.run(cmd, stdout=wr, stderr=subprocess.PIPE, text=True, env=env)
+                  os.close(wr)
+                  assert p.returncode == 3, "%s (%s) with a closed stdout exited %d" % (name, shape, p.returncode)
+                  assert "Traceback" not in p.stderr and "Exception ignored" not in p.stderr, \
+                      "%s (%s) wrote a traceback on a closed stdout:\n%s" % (name, shape, p.stderr)
+                  assert "closed" in p.stderr, "%s (%s) gave no reason on stderr" % (name, shape)
+                  rd, wr = os.pipe()
+                  os.close(rd)
+                  p = subprocess.run(cmd, stdout=wr, stderr=wr, env=env)
+                  os.close(wr)
+                  assert p.returncode == 3, \
+                      "%s (%s, 2>&1) with both streams closed exited %d" % (name, shape, p.returncode)
 
           # 2. SIGINT while the script is blocked on its input. A FIFO with no writer
           #    blocks the open; the write side reports ENXIO until a reader holds it,

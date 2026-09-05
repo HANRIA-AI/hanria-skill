@@ -343,6 +343,11 @@ class _Parser(argparse.ArgumentParser):
     2 and read as an approval request. One class, used for both levels.
     """
 
+    def _print_message(self, message, file=None):
+        # argparse swallows a write error here; a closed pipe must reach
+        # the guard instead (--help would otherwise exit 0 undelivered).
+        _schema.write_or_raise(message, file or sys.stderr)
+
     def error(self, message):
         _die("usage: %s" % message)
 

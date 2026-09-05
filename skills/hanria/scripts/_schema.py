@@ -291,28 +291,62 @@ def load(path, what=None):
         return loads(read_bounded(fh, what or path), what or path)
 
 
+def _silence(stream):
+    """Point `stream`'s descriptor at the null device, needing no spare one.
+
+    The descriptor is closed first and the null device opened onto the same
+    number (the lowest free), so this works when the process has no
+    descriptors left. If the null device itself cannot be opened, the
+    descriptor stays closed and the interpreter's shutdown flush of that
+    stream still turns the exit into 120 (LIMITATIONS.md).
+    """
+    try:
+        fd = stream.fileno()
+    except (OSError, ValueError, AttributeError):
+        return  # not a descriptor-backed stream; shutdown will not hit a pipe
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+    try:
+        got = os.open(os.devnull, os.O_WRONLY)
+    except OSError:
+        return
+    if got != fd:
+        try:
+            os.dup2(got, fd)
+        finally:
+            os.close(got)
+
+
 def _stdout_gone(reason):
     """Standard output is a closed pipe. Nothing more can be said there.
 
-    Point descriptor 1 at the null device so the interpreter's exit-time flush
-    of the buffered outcome cannot raise a second BrokenPipeError (which would
-    replace exit 3 with 120), then say why on standard error, best effort.
+    Silence descriptor 1 so the interpreter's exit-time flush of the buffered
+    outcome cannot raise a second BrokenPipeError (which would replace exit 3
+    with 120), then say why on standard error. If standard error is the same
+    closed pipe (`2>&1`), silence it too, for the same reason.
     """
-    try:
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(devnull, sys.stdout.fileno())
-        finally:
-            os.close(devnull)
-    except (OSError, ValueError):
-        # No usable descriptor 1 at all (stdout replaced by an object without
-        # one, or already closed). There is nothing left to redirect.
-        pass
+    _silence(sys.stdout)
     try:
         sys.stderr.write(reason + "\n")
         sys.stderr.flush()
     except (OSError, ValueError):
-        pass
+        _silence(sys.stderr)
+
+
+def write_or_raise(message, file):
+    """Write `message` to `file` and let a failure propagate.
+
+    argparse's own writer swallows OSError, so `--help` on a closed pipe would
+    leave by SystemExit(0) with nothing delivered and exit 0. Both scripts'
+    parsers route their messages through here instead; the flush makes a
+    closed pipe fail at once, buffered or not, and the BrokenPipeError reaches
+    run_guarded, which exits 3.
+    """
+    if message:
+        file.write(message)
+        file.flush()
 
 
 def run_guarded(main, error_object):
@@ -330,7 +364,8 @@ def run_guarded(main, error_object):
     lands after the outcome was already written, the caller sees two objects;
     the exit code, 3, governs. An interrupt before this guard is entered, in
     interpreter start-up or the imports, is not covered: the script dies of
-    the signal (LIMITATIONS.md).
+    the signal (LIMITATIONS.md). argparse's messages must come through
+    write_or_raise for --help on a closed pipe to reach the BrokenPipeError arm.
     """
     try:
         code = main()

@@ -703,6 +703,11 @@ class _ArgParser(argparse.ArgumentParser):
     like every other error path.
     """
 
+    def _print_message(self, message, file=None):
+        # argparse swallows a write error here; a closed pipe must reach
+        # the guard instead (--help would otherwise exit 0 undelivered).
+        _schema.write_or_raise(message, file or sys.stderr)
+
     def error(self, message):
         print(json.dumps(_outcome("error", "usage: %s" % message), indent=2))
         raise SystemExit(3)

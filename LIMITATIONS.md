@@ -107,18 +107,21 @@ this skill gives you enforcement, that claim is false.**
   consumer might decode — a different escaping scheme, an overlong UTF-8 form, a URL that redirects —
   are not recognized. The target is compared as written after percent-decoding, and nothing
   canonicalizes it further.
-- **Once a script is running, an interrupt or a closed standard output is an error (exit 3), and
-  that is all it is.** Both scripts run under one guard: `SIGINT` while a script is working produces
-  the script's own error object and exit 3 instead of Python's 130 and a traceback, and a standard
+- **Past the entry guard, an interrupt or a closed standard output is an error (exit 3), and that
+  is all it is.** Both scripts run under one guard: `SIGINT` while a script is working produces the
+  script's own error object and exit 3 instead of Python's 130 and a traceback, and a standard
   output nobody reads (a closed pipe) produces exit 3 with the reason on standard error instead of 1,
   which a caller would read as `deny` or `broken`, or 120 from the interpreter's own exit flush. That
-  holds for usage errors and `--help` as well: an error object or help text that could not be
-  delivered is exit 3, not 120. Three gaps remain. An interrupt before the guard is reached, during
-  interpreter start-up or the imports, is not caught: the script dies of the signal and the shell
-  reports 130. If the interrupt lands after the outcome was already written, the caller receives two
-  JSON objects; the exit code, 3, governs and any earlier object is void. And a second interrupt while
-  the guard is writing its error object is not caught: the script then dies of the signal. Nothing is
-  retried in any of these cases, and no log entry is written for an outcome that was never delivered.
+  holds for usage errors and `--help`, with buffered or unbuffered output, and when standard error
+  is the same closed pipe: an error object or help text that could not be delivered is exit 3, not 0
+  and not 120. The known gaps: an interrupt before the guard is reached, during interpreter start-up
+  or the imports, is not caught, and the script dies of the signal (the shell reports 130). If the
+  interrupt lands after the outcome was already written, the caller receives two JSON objects; the
+  exit code, 3, governs and any earlier object is void. A second interrupt while the guard is
+  writing its error object is not caught, and the script dies of the signal. And if the null device
+  cannot be opened to silence a closed stream, the interpreter's exit flush still reports 120.
+  Nothing is retried in any of these cases, and no log entry is written for an outcome that was
+  never delivered.
 - `_schema.py` implements the JSON Schema subset these schemas use and refuses any keyword, or
   `format` value, that it does not implement — checked across the whole schema, not only the branches
   a document happens to reach. It is not a general-purpose JSON Schema validator and should not be
