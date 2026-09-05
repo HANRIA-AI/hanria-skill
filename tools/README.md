@@ -47,7 +47,10 @@ per line in the harness's own naming, each with its reason in `EQUIVALENT.md`.
 a step detects only by not finishing. The dispatch-only workflow `mutants.yml`
 fails unless the survivors are exactly the first list and the timeouts exactly
 the second. The names carry line and column, so an edit that moves a listed
-site must move its line here too; the workflow prints the diff when it fails.
+site must move its line here too. `check_lists.py`, on the push gate, refuses a
+listed name that no longer exists and an equivalent without a cited reason,
+in about a second, so a stale list fails before the dispatch would; the
+dispatch prints the diff when it fails.
 
 Limits. The steps take a minute or more per run, so a full sweep is hours, not
 minutes, and it is not on the push gate. The operators are the common ones, not

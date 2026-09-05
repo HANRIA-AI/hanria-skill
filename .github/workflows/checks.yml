@@ -1650,3 +1650,6 @@ jobs:
           assert env['HANRIA_SOCKET'] in out['searched'], out
           print('detection reports present, unresponsive, and absent with their exit codes')
           PY
+
+      - name: Every listed survivor names a mutant that exists and has a stated reason
+        run: python3 tools/check_lists.py

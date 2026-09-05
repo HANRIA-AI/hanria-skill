@@ -249,7 +249,11 @@ def _run_one(args):
 
 
 def _log_name(mutant_name):
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", mutant_name)[:180] + ".log"
+    # The sanitized name is not injective (every operator becomes "_"), so a
+    # short digest of the full name keeps two mutants' logs apart.
+    import hashlib
+    digest = hashlib.sha256(mutant_name.encode("utf-8")).hexdigest()[:8]
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", mutant_name)[:160] + "-" + digest + ".log"
 
 
 class _Parser(argparse.ArgumentParser):
