@@ -107,6 +107,15 @@ this skill gives you enforcement, that claim is false.**
   consumer might decode — a different escaping scheme, an overlong UTF-8 form, a URL that redirects —
   are not recognized. The target is compared as written after percent-decoding, and nothing
   canonicalizes it further.
+- **An interrupt or a closed standard output is an error (exit 3), and that is all it is.** Both
+  scripts run under one guard: `SIGINT` while a script is working produces the script's own error
+  object and exit 3 instead of Python's 130 and a traceback, and a standard output nobody reads
+  (a closed pipe) produces exit 3 with the reason on standard error instead of 1, which a caller
+  would read as `deny` or `broken`, or 120 from the interpreter's own exit flush. Two gaps remain.
+  If the interrupt lands after the outcome was already written, the caller receives two JSON
+  objects; the exit code, 3, governs and any earlier object is void. And a second interrupt while
+  the guard is writing its error object is not caught: the script then dies of the signal. Nothing
+  is retried in either case, and no log entry is written for an outcome that was never delivered.
 - `_schema.py` implements the JSON Schema subset these schemas use and refuses any keyword, or
   `format` value, that it does not implement — checked across the whole schema, not only the branches
   a document happens to reach. It is not a general-purpose JSON Schema validator and should not be

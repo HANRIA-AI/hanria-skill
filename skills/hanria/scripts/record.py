@@ -386,4 +386,5 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(_schema.run_guarded(
+        main, lambda reason: {"status": "error", "reason": reason}))

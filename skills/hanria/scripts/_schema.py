@@ -22,7 +22,9 @@ which are not date-times.
 """
 import datetime as _dt
 import json
+import os
 import re
+import sys
 
 SUPPORTED = {
     "$schema", "$id", "title", "description", "$comment",
@@ -287,3 +289,57 @@ def validate(doc, schema, path="$", _checked=False):
 def load(path, what=None):
     with open(path, "r", encoding="utf-8") as fh:
         return loads(read_bounded(fh, what or path), what or path)
+
+
+def _stdout_gone(reason):
+    """Standard output is a closed pipe. Nothing more can be said there.
+
+    Point descriptor 1 at the null device so the interpreter's exit-time flush
+    of the buffered outcome cannot raise a second BrokenPipeError (which would
+    replace exit 3 with 120), then say why on standard error, best effort.
+    """
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull, sys.stdout.fileno())
+    finally:
+        os.close(devnull)
+    try:
+        sys.stderr.write(reason + "\n")
+        sys.stderr.flush()
+    except OSError:
+        pass
+
+
+def run_guarded(main, error_object):
+    """Run `main` and make the two interruptions that pass `except Exception`
+    exit 3, never 1, 120, or 130.
+
+    KeyboardInterrupt is a BaseException, so a script's own error handling
+    never sees it and Python exits 130 with a traceback. BrokenPipeError on
+    the final print is an OSError; a handler that then prints an error object
+    hits the same closed pipe and the traceback exits 1, which callers read as
+    deny (check_action) or chain broken (record). Both are errors: exit 3.
+
+    `error_object(reason)` builds the script's own error shape. It is written
+    on interrupt when standard output still accepts it. If the interrupt
+    lands after the outcome was already written, the caller sees two objects;
+    the exit code, 3, governs (LIMITATIONS.md).
+    """
+    try:
+        code = main()
+        # A pipe makes standard output block-buffered: the final print never
+        # touches the descriptor, and the closed pipe surfaces at the
+        # interpreter's shutdown flush, after main has returned, as
+        # "Exception ignored" and exit 120. Flush here, inside the guard.
+        sys.stdout.flush()
+        return code
+    except KeyboardInterrupt:
+        reason = "interrupted; the exit code governs, not any earlier output"
+        try:
+            print(json.dumps(error_object(reason), indent=2), flush=True)
+        except BrokenPipeError:
+            _stdout_gone(reason)
+        return 3
+    except BrokenPipeError:
+        _stdout_gone("standard output closed before the outcome was written")
+        return 3
