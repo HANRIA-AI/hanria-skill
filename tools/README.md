@@ -78,3 +78,11 @@ evaluation rules and compares it with the checker on generated mandates
 and requests, outcome and clause alike; two thousand pairs on the push
 gate, as many as asked on dispatch (`fuzz.yml`). See
 `tools/MODEL-EVALUATOR-2026-09-06.md`.
+
+## The log exerciser
+
+`tools/log_exerciser.py` builds real decision logs, tampers with them and
+their head files in seeded sequences, and predicts every verify and append
+verdict from an independent model of the chain; eight logs on the push
+gate, as many as asked on dispatch (`fuzz.yml`). See
+`tools/LOG-EXERCISER-2026-09-06.md`.

@@ -1,6 +1,6 @@
 name: fuzz
-# The input fuzzer and the reference evaluator at length, on request. The
-# push gate runs sixty cases and two thousand pairs; this runs as many as
+# The input fuzzer, the reference evaluator and the log exerciser at
+# length, on request. The push gate runs each small; this runs as many as
 # asked on the runner and uploads any finding with the run.
 on:
   workflow_dispatch:
@@ -13,6 +13,10 @@ on:
         description: 'Pairs for the reference evaluator'
         required: false
         default: '500000'
+      logs:
+        description: 'Logs for the log exerciser'
+        required: false
+        default: '2000'
 permissions:
   contents: read
 jobs:
@@ -37,6 +41,13 @@ jobs:
           python3 tools/model_evaluator.py --pairs ${{ inputs.pairs }} --seed "$GITHUB_RUN_ID" --output "$RUNNER_TEMP/fuzz.out/model"
           code=$?
           echo "reference evaluator exit $code"
+          test "$code" = "0" || exit 1
+      - name: The log exerciser against its model
+        run: |
+          set +e
+          python3 tools/log_exerciser.py --logs ${{ inputs.logs }} --seed "$GITHUB_RUN_ID" --output "$RUNNER_TEMP/fuzz.out/log"
+          code=$?
+          echo "log exerciser exit $code"
           test "$code" = "0" || exit 1
       - name: Findings, if any, travel with the run
         if: always()

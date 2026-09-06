@@ -1768,3 +1768,35 @@ jobs:
           echo "$out" | tail -2
           test "$code" = "0" || { echo "the reference evaluator exited $code"; echo "$out" | grep FINDING | head -5; exit 1; }
           grep -q '^model: 2000 pairs, 0 disagreements' <<<"$out" || { echo "the summary line is missing or wrong"; exit 1; }
+      - name: The log exerciser agrees with its model on eight logs
+        run: |
+          set +e
+          # Real logs built through append, seeded tamperings of the log and
+          # its head file, verify with and without a retained head, and an
+          # append onto each; every verdict predicted by an independent
+          # model of the chain. Long runs are a dispatch of fuzz.yml.
+          out=$(python3 tools/log_exerciser.py --logs 8 --seed 8 --output "$(mktemp -d)" 2>&1); code=$?
+          echo "$out" | tail -2
+          test "$code" = "0" || { echo "the log exerciser exited $code"; echo "$out" | grep FINDING | head -5; exit 1; }
+          grep -q '^log: 8 logs, [0-9]* tamperings, 0 findings' <<<"$out" || { echo "the summary line is missing or wrong"; exit 1; }
+      - name: An empty log against a retained head is truncation, not empty
+        run: |
+          set +e
+          # Found by the log exerciser's audit: verify consulted a retained
+          # head only once there was a chain to compare it with, so a log
+          # emptied outright passed the operator's pin as "empty", exit 0.
+          d=$(mktemp -d)
+          python3 skills/hanria/scripts/check_action.py --mandate skills/hanria/examples/mandate.example.json --action skills/hanria/examples/action.read-ticket.json > "$d/o.json"
+          python3 skills/hanria/scripts/record.py append --log "$d/log.jsonl" --action skills/hanria/examples/action.read-ticket.json --outcome "$d/o.json" > "$d/a.json" || { echo "append failed"; exit 1; }
+          head=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['digest'])" "$d/a.json")
+          : > "$d/log.jsonl"; rm -f "$d/log.jsonl.head"
+          out=$(python3 skills/hanria/scripts/record.py verify --log "$d/log.jsonl" --expect-head "$head"); code=$?
+          echo "$out"
+          test "$code" = "1" || { echo "an empty log against a retained head must be broken (exit 1), got $code"; exit 1; }
+          grep -q '"status": "broken"' <<<"$out" || { echo "status must be broken"; exit 1; }
+          grep -q '"at": 0' <<<"$out" || { echo "the break is at position 0"; exit 1; }
+          grep -q 'truncated to nothing' <<<"$out" || { echo "the reason must name truncation to nothing"; exit 1; }
+          # Without a retained head and without a head file, empty is empty.
+          out=$(python3 skills/hanria/scripts/record.py verify --log "$d/log.jsonl"); code=$?
+          test "$code" = "0" || { echo "an empty log with nothing to compare against is empty (exit 0), got $code"; exit 1; }
+          grep -q '"status": "empty"' <<<"$out" || { echo "status must be empty"; exit 1; }

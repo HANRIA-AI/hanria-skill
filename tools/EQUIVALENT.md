@@ -95,29 +95,33 @@ so: it fails when the survivors are not exactly this list.
   every error path prints its object and returns 3 itself.
 - `check_action.py:712`, `:734`, `:742`, `:745`, the indentation of the printed
   outcome objects: every step parses them as JSON.
-- `record.py:237` and `:238`, releasing and closing the append lock: the
+- `record.py:249` and `:250`, releasing and closing the append lock: the
   process exits immediately afterwards, and the kernel releases both.
-- `record.py:137`, `:146`, `:148`, `:157`, `:168`, `:174`, `:181`, `:188`,
-  `:204`, `:210`, `:219`, `:328`, `:333`, `:378`, `:385`, `:389`, the
+- `record.py:137`, `:158`, `:160`, `:169`, `:180`, `:186`, `:193`, `:200`,
+  `:216`, `:222`, `:231`, `:340`, `:345`, `:390`, `:397`, `:401`, the
   indentation of printed status
   objects: parsed as JSON.
-- `record.py:141` and `:293` (column 79), the default count read from a head
+- `record.py:153` and `:305` (column 79), the default count read from a head
   file that has none: a head without a count is refused as malformed before the
   default is consulted (the head's shape is checked at `:98`). The threshold
   beside it, column 84, is live: raised to one, an append over a truncated
   log of one entry would skip the verification that refuses it.
-- `record.py:293`, the gate that decides whether an append verifies the
+- `record.py:305`, the gate that decides whether an append verifies the
   existing chain first, widened to a head recording zero entries: that
   verification reports the log empty and lets the append proceed, the same
   as skipping it.
-- `record.py:180`, `:204`, `:283`, the number of digest characters shown in
+- `record.py:192`, `:216`, `:295`, the number of digest characters shown in
   a refusal's reason: presentation; the refusal itself is decided on the
   full digests, and the reason's words are what the steps read.
-- `record.py:381` and `:382`, the branch of the SystemExit handler that
+- `record.py:393` and `:394`, the branch of the SystemExit handler that
   re-raises an exit already carrying code 3: the parser's usage exit is
   raised by `parse_args` before the `try` block and never reaches the
   handler, and nothing inside the block raises that code, so the branch is
   never entered.
+- `record.py:151`, the indentation of the printed object when an empty log is
+  verified against a retained head: parsed as JSON by every step, not content.
+- `record.py:151`, the sixteen-character prefix of the retained head shown in
+  that reason: a reason string, which no step compares beyond its presence.
 
 # Why each listed timeout loops
 

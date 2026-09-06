@@ -138,6 +138,18 @@ def verify(path, expect_head=None):
         return 1
 
     if not entries:
+        # A head retained by the operator names an entry; an empty log
+        # against it is the log truncated to nothing, which is the one
+        # truncation a retained head exists to catch. Found by the log
+        # exerciser's audit: the retained head was consulted only once
+        # there was a chain to compare it with.
+        if expect_head:
+            print(json.dumps({
+                "status": "broken", "at": 0,
+                "reason": "the log is empty but a head %s was retained for it; "
+                          "the log was truncated to nothing"
+                          % expect_head[:16]}, indent=2))
+            return 1
         if pinned and pinned.get("count", 0) > 0:
             print(json.dumps({
                 "status": "broken", "at": 0,
