@@ -16,6 +16,15 @@ relied on with the checker's, calling the checker in process so thousands
 of pairs cost seconds. A disagreement is a finding either way, in the
 reference or in the checker, and is investigated as such.
 
+## Where the rules are written
+
+Every rule the reference encodes is stated for operators in `SKILL.md`,
+`README.md` or `LIMITATIONS.md` except that, until the commit that added
+this paragraph, the tiering carve-out (a later clause that also narrows a
+bounded scope is dead below the earlier ceiling and refused) was stated
+only in the checker's comments; it is now in the README's tiering
+paragraph and the limitations file's unreachable-clause entry.
+
 ## What it found on 2026-09-06
 
 No disagreement: two thousand pairs per push-gate run; two hundred

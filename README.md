@@ -86,7 +86,10 @@ Three things worth doing:
   ceiling narrows what may be asked for without removing you from the decision.
 
 Tiered policies work: permit refunds up to one ceiling, escalate up to a higher one, deny the rest.
-A bounded clause leaves everything above its ceiling to the clauses after it.
+A bounded clause leaves everything above its ceiling to the clauses after it. The tiers must share
+one scope: a later clause that also narrows the scope, by adding a counterparty, say, is carving a
+subset out of what the earlier ceiling already permits, so below that ceiling it can never run, and
+the checker refuses the mandate as unreachable rather than let the carve-out read as though it applied.
 
 ## What it guarantees, and what it does not
 

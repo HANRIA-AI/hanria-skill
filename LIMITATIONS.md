@@ -102,7 +102,10 @@ this skill gives you enforcement, that claim is false.**
 - **The unreachable-clause check compares clauses pairwise.** It catches an earlier clause that
   decides requests a later restricting clause was written to cover. It does not reason about three or
   more clauses combining to make a fourth unreachable, and it compares conditions structurally rather
-  than semantically.
+  than semantically. One consequence is written down here because it is not obvious from the
+  first-match rule alone: a bounded clause leaves amounts above its ceiling to later clauses, so a
+  tiered policy in one scope is reachable, but a later clause that also narrows that scope is carving
+  a subset out of what the earlier ceiling permits, is dead below that ceiling, and is refused.
 - **Only literal and percent-encoded parent segments are refused.** Other encodings a downstream
   consumer might decode — a different escaping scheme, an overlong UTF-8 form, a URL that redirects —
   are not recognized. The target is compared as written after percent-decoding, and nothing
