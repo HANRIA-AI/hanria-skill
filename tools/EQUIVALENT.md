@@ -109,7 +109,12 @@ so: it fails when the survivors are not exactly this list.
 - `record.py:305`, the gate that decides whether an append verifies the
   existing chain first, widened to a head recording zero entries: that
   verification reports the log empty and lets the append proceed, the same
-  as skipping it.
+  as skipping it. This entry is equivalent by outcome, not by
+  unreachability, which is the weaker kind: it holds only while
+  verification of an empty log has no effect beyond its report, and it
+  would stop holding if that path ever gained one. Every other entry in
+  this file's record.py section is equivalent by unreachability or by
+  presentation.
 - `record.py:192`, `:216`, `:295`, the number of digest characters shown in
   a refusal's reason: presentation; the refusal itself is decided on the
   full digests, and the reason's words are what the steps read.
@@ -118,6 +123,14 @@ so: it fails when the survivors are not exactly this list.
   raised by `parse_args` before the `try` block and never reaches the
   handler, and nothing inside the block raises that code, so the branch is
   never entered.
+
+The thirty-three record.py entries above were read against the source at
+633cbc6 by a second reader on 2026-09-06, entry by entry, including the
+two default-count entries and the gate at `:305`; the reading agreed with
+every justification and supplied the outcome-versus-unreachability
+distinction recorded at `:305`. A list of equivalence claims is the one
+part of a mutation result that no gate can verify, so a second reading
+is the only evidence that reaches it.
 - `record.py:151`, the indentation of the printed object when an empty log is
   verified against a retained head: parsed as JSON by every step, not content.
 - `record.py:151`, the sixteen-character prefix of the retained head shown in
