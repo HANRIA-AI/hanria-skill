@@ -87,6 +87,16 @@ verdict from an independent model of the chain; eight logs on the push
 gate, as many as asked on dispatch (`fuzz.yml`). See
 `tools/LOG-EXERCISER-2026-09-06.md`.
 
+## The runtime exerciser
+
+`tools/runtime_exerciser.py` runs the runtime detector on every
+combination of what the two probe locations it can control hold: nothing,
+a listening Unix socket, a stale socket file, or a regular file, with the
+environment override unset, empty, its own path, or the home path. A
+model of the documented probe order predicts the status, the exit code
+and the reported endpoint or lists. It runs on every push (`checks.yml`).
+See `tools/RUNTIME-EXERCISER-2026-09-06.md`.
+
 ## The schema exerciser
 
 `tools/schema_exerciser.py` holds an independent reading of the strict

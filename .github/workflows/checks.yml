@@ -1768,6 +1768,17 @@ jobs:
           echo "$out" | tail -2
           test "$code" = "0" || { echo "the reference evaluator exited $code"; echo "$out" | grep FINDING | head -5; exit 1; }
           grep -q '^model: 2000 pairs, 0 disagreements' <<<"$out" || { echo "the summary line is missing or wrong"; exit 1; }
+      - name: The runtime detector agrees with its model on every probe combination
+        run: |
+          set +e
+          # HOME and HANRIA_SOCKET pointed at the tool's own paths holding
+          # nothing, a listening socket, a stale socket file or a regular
+          # file, in every combination; status, exit code, endpoint and
+          # lists predicted by a model of the documented probe order.
+          out=$(python3 tools/runtime_exerciser.py --output "$(mktemp -d)" 2>&1); code=$?
+          echo "$out" | head -12
+          test "$code" = "0" || { echo "runtime exerciser exit $code"; exit 1; }
+          grep -q '"combinations": 28' <<<"$out" || { echo "expected 28 combinations"; exit 1; }
       - name: The log exerciser agrees with its model on eight logs
         run: |
           set +e
