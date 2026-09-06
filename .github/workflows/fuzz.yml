@@ -1,14 +1,18 @@
 name: fuzz
-# The input fuzzer at length, on request. The push gate runs sixty cases;
-# this runs as many as asked on every core of the runner and uploads any
-# finding with the run.
+# The input fuzzer and the reference evaluator at length, on request. The
+# push gate runs sixty cases and two thousand pairs; this runs as many as
+# asked on the runner and uploads any finding with the run.
 on:
   workflow_dispatch:
     inputs:
       cases:
-        description: 'Cases to run'
+        description: 'Cases for the input fuzzer'
         required: false
         default: '20000'
+      pairs:
+        description: 'Pairs for the reference evaluator'
+        required: false
+        default: '500000'
 permissions:
   contents: read
 jobs:
@@ -26,6 +30,13 @@ jobs:
           python3 tools/fuzz_inputs.py --cases ${{ inputs.cases }} --jobs "$(nproc)" --seed "$GITHUB_RUN_ID" --output "$RUNNER_TEMP/fuzz.out"
           code=$?
           echo "fuzzer exit $code"
+          test "$code" = "0" || exit 1
+      - name: The reference evaluator against the checker
+        run: |
+          set +e
+          python3 tools/model_evaluator.py --pairs ${{ inputs.pairs }} --seed "$GITHUB_RUN_ID" --output "$RUNNER_TEMP/fuzz.out/model"
+          code=$?
+          echo "reference evaluator exit $code"
           test "$code" = "0" || exit 1
       - name: Findings, if any, travel with the run
         if: always()

@@ -70,3 +70,11 @@ through both scripts, judging tracebacks, exit codes, output shape, schema
 conformance, determinism, time, and the recorder's log; sixty cases on the
 push gate, as many as asked on dispatch (`fuzz.yml`). See
 `tools/FUZZ-INPUTS-2026-09-06.md`.
+
+## The reference evaluator
+
+`tools/model_evaluator.py` holds a second implementation of the documented
+evaluation rules and compares it with the checker on generated mandates
+and requests, outcome and clause alike; two thousand pairs on the push
+gate, as many as asked on dispatch (`fuzz.yml`). See
+`tools/MODEL-EVALUATOR-2026-09-06.md`.

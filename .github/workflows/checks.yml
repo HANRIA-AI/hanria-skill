@@ -1757,3 +1757,14 @@ jobs:
           echo "$out" | tail -3
           test "$code" = "0" || { echo "the input fuzzer exited $code"; echo "$out" | grep FINDING | head -5; exit 1; }
           grep -q '^fuzz: 60 cases, 0 with findings' <<<"$out" || { echo "the summary line is missing or wrong"; exit 1; }
+      - name: The reference evaluator agrees with the checker on two thousand pairs
+        run: |
+          set +e
+          # A second implementation of the documented rules, generated
+          # mandates and requests, the outcome and the clause compared on
+          # every pair. A disagreement is a finding either way: in the
+          # reference or in the checker. Long runs are a dispatch of fuzz.yml.
+          out=$(python3 tools/model_evaluator.py --pairs 2000 --seed 2000 --output "$(mktemp -d)" 2>&1); code=$?
+          echo "$out" | tail -2
+          test "$code" = "0" || { echo "the reference evaluator exited $code"; echo "$out" | grep FINDING | head -5; exit 1; }
+          grep -q '^model: 2000 pairs, 0 disagreements' <<<"$out" || { echo "the summary line is missing or wrong"; exit 1; }
