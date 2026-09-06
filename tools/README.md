@@ -62,3 +62,11 @@ Limits. The steps take a minute or more per run, so a full sweep is hours, not
 minutes, and it is not on the push gate. The operators are the common ones, not
 all of them: string literals, arithmetic, and return values are not mutated, so
 a survivor-free run says every listed kind of change is caught, no more.
+
+## The input fuzzer
+
+`tools/fuzz_inputs.py` mutates the example documents and runs every pair
+through both scripts, judging tracebacks, exit codes, output shape, schema
+conformance, determinism, time, and the recorder's log; sixty cases on the
+push gate, as many as asked on dispatch (`fuzz.yml`). See
+`tools/FUZZ-INPUTS-2026-09-06.md`.

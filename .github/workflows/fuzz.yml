@@ -1,0 +1,36 @@
+name: fuzz
+# The input fuzzer at length, on request. The push gate runs sixty cases;
+# this runs as many as asked on every core of the runner and uploads any
+# finding with the run.
+on:
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: 'Cases to run'
+        required: false
+        default: '20000'
+permissions:
+  contents: read
+jobs:
+  inputs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Fuzz the scripts' inputs
+        run: |
+          set +e
+          python3 tools/fuzz_inputs.py --cases ${{ inputs.cases }} --jobs "$(nproc)" --seed "$GITHUB_RUN_ID" --output "$RUNNER_TEMP/fuzz.out"
+          code=$?
+          echo "fuzzer exit $code"
+          test "$code" = "0" || exit 1
+      - name: Findings, if any, travel with the run
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz.out
+          path: ${{ runner.temp }}/fuzz.out
+          if-no-files-found: ignore

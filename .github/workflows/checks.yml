@@ -1746,3 +1746,14 @@ jobs:
           code=$?
           test "$code" = "0" || { echo "run_steps contracts failed (python exit $code)"; exit 1; }
           echo "the harness keeps its contracts"
+      - name: The input fuzzer finds nothing on sixty cases
+        run: |
+          set +e
+          # Sixty seeded cases through both scripts: no traceback, one JSON
+          # object, schema and exit-code agreement, determinism, the time
+          # budget, and a recorder that leaves a verifying log or an
+          # untouched one. Long runs are a dispatch of fuzz.yml.
+          out=$(python3 tools/fuzz_inputs.py --cases 60 --jobs 2 --seed 60 --output "$(mktemp -d)" 2>&1); code=$?
+          echo "$out" | tail -3
+          test "$code" = "0" || { echo "the input fuzzer exited $code"; echo "$out" | grep FINDING | head -5; exit 1; }
+          grep -q '^fuzz: 60 cases, 0 with findings' <<<"$out" || { echo "the summary line is missing or wrong"; exit 1; }
