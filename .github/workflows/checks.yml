@@ -1674,3 +1674,75 @@ jobs:
           test "$code" = "0" || { echo "the tree as it is must pass, got $code"; echo "$out"; exit 1; }
           grep -q ' 0 problems' <<<"$out" || { echo "the pass must be stated"; echo "$out"; exit 1; }
           echo "the list check reads the tree it is told to read"
+      - name: The harness keeps its contracts without running a mutant
+        run: |
+          set +e
+          # Everything here reads the named source tree (this checkout outside the
+          # harness), so under the harness the result is the same for every mutant;
+          # nothing here reads the workflow, so it cannot recurse into it.
+          good=${HANRIA_MUTANTS_SOURCE_TREE:-$PWD}
+          cd "$good"
+          a=$(python3 tools/mutants.py --list); b=$(python3 tools/mutants.py --list)
+          test -n "$a" || { echo "the harness lists nothing"; exit 1; }
+          test "$a" = "$b" || { echo "two listings of the same tree differ"; exit 1; }
+          grep -vqE '^skills/hanria/scripts/[a-z_]+\.py:[0-9]+:[0-9]+: .+$' <<<"$a" && { echo "a listed name is malformed:"; grep -vE '^skills/hanria/scripts/[a-z_]+\.py:[0-9]+:[0-9]+: .+$' <<<"$a"; exit 1; }
+          dups=$(sort <<<"$a" | uniq -d); test -z "$dups" || { echo "duplicate names:"; echo "$dups"; exit 1; }
+          r=$(python3 tools/mutants.py --list --re 'record\.py'); f=$(python3 tools/mutants.py --list --file skills/hanria/scripts/record.py)
+          test -n "$r" && test "$r" = "$f" || { echo "--re and --file select different sets for record.py"; exit 1; }
+          python3 tools/mutants.py --bogus >/dev/null 2>&1; code=$?
+          test "$code" = "1" || { echo "a usage error must exit 1, not $code (2 would collide with survivors)"; exit 1; }
+          printf '%s\n%s\n' "$(head -1 <<<"$a")" 'skills/hanria/scripts/record.py:1:1: replace nothing' > /tmp/stale-names.txt
+          out=$(python3 tools/mutants.py --names /tmp/stale-names.txt --list); code=$?
+          test "$code" = "1" || { echo "a stale name must exit 1, got $code"; echo "$out"; exit 1; }
+          grep -q 'replace nothing' <<<"$out" || { echo "the stale name must be printed"; echo "$out"; exit 1; }
+          grep -qE '^skills/' <<<"$out" && { echo "a listing was printed despite the stale name"; echo "$out"; exit 1; }
+          python3 - <<'PY'
+          import os, sys, tempfile, time, shutil
+          sys.path.insert(0, "tools"); import mutants
+          tree = tempfile.mkdtemp(prefix="hanria-selftest-"); mutants.copy_repo(tree)
+          try:
+              # The scratch rewrite and the named source tree, read back from the step.
+              # The literal is assembled here so that, when this step itself runs under
+              # the harness, the outer rewrite does not see it (on Linux the copies live
+              # under /tmp, and a doubly rewritten path would land elsewhere).
+              T = "/" + "tmp/"
+              outcome, step = mutants.run_steps(tree, [("probe", 'echo "$HANRIA_MUTANTS_SOURCE_TREE" > ' + T + 'probe.txt')], 30)
+              assert outcome == "survived", (outcome, step, mutants.run_steps.last_failure)
+              probe = os.path.join(tree, "step-tmp", "probe.txt")
+              assert os.path.exists(probe), "the step's scratch path was not rewritten into the copy"
+              got = open(probe).read().strip()
+              assert got == mutants.ROOT, "the step was told %r as the source tree, not %r" % (got, mutants.ROOT)
+              # A failing step is caught, and its whole output is kept.
+              outcome, step = mutants.run_steps(tree, [("fails", 'echo visible; echo hidden >&2; exit 7')], 30)
+              assert (outcome, step) == ("caught", "fails"), (outcome, step)
+              lf = mutants.run_steps.last_failure
+              for needle in ("visible", "hidden", "--- exit 7 ---"):
+                  assert needle in lf, (needle, lf)
+              # A stalled step is killed with its whole process group, twice, then counts as
+              # a timeout. Each attempt appends its child's pid; every one must be dead.
+              marker = os.path.join(tree, "step-tmp", "sleepers.txt")
+              t0 = time.time()
+              outcome, step = mutants.run_steps(tree, [("stalls", 'sleep 30 & echo $! >> ' + T + 'sleepers.txt; wait')], 1)
+              took = time.time() - t0
+              assert (outcome, step) == ("timeout", "stalls"), (outcome, step)
+              assert took < 10, "two one-second attempts took %.1fs" % took
+              pids = [int(l) for l in open(marker).read().split()]
+              assert len(pids) == 2, "expected a pid from each attempt, got %r" % pids
+              deadline = time.time() + 5
+              alive = set(pids)
+              while alive and time.time() < deadline:
+                  for pid in list(alive):
+                      try:
+                          os.kill(pid, 0)
+                      except OSError:
+                          alive.discard(pid)
+                  if alive:
+                      time.sleep(0.1)
+              assert not alive, "a step's background child survived the kill: %r" % sorted(alive)
+          finally:
+              shutil.rmtree(tree, ignore_errors=True)
+          print("run_steps: rewrites the scratch path, names the source tree, keeps a kill's output, kills a stalled group")
+          PY
+          code=$?
+          test "$code" = "0" || { echo "run_steps contracts failed (python exit $code)"; exit 1; }
+          echo "the harness keeps its contracts"
