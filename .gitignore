@@ -5,3 +5,4 @@ mutants.out/
 fuzz.out/
 model.out/
 log.out/
+schema.out/

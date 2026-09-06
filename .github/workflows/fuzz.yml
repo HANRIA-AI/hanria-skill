@@ -1,7 +1,8 @@
 name: fuzz
-# The input fuzzer, the reference evaluator and the log exerciser at
-# length, on request. The push gate runs each small; this runs as many as
-# asked on the runner and uploads any finding with the run.
+# The input fuzzer, the reference evaluator, the log exerciser and the
+# schema exerciser at length, on request. The push gate runs each small;
+# this runs as many as asked on the runner and uploads any finding with
+# the run.
 on:
   workflow_dispatch:
     inputs:
@@ -17,6 +18,10 @@ on:
         description: 'Logs for the log exerciser'
         required: false
         default: '2000'
+      texts:
+        description: 'Texts and pairs, each, for the schema exerciser'
+        required: false
+        default: '1000000'
 permissions:
   contents: read
 jobs:
@@ -48,6 +53,13 @@ jobs:
           python3 tools/log_exerciser.py --logs ${{ inputs.logs }} --seed "$GITHUB_RUN_ID" --output "$RUNNER_TEMP/fuzz.out/log"
           code=$?
           echo "log exerciser exit $code"
+          test "$code" = "0" || exit 1
+      - name: The schema exerciser against its reference
+        run: |
+          set +e
+          python3 tools/schema_exerciser.py --texts ${{ inputs.texts }} --pairs ${{ inputs.texts }} --seed "$GITHUB_RUN_ID" --output "$RUNNER_TEMP/fuzz.out/schema"
+          code=$?
+          echo "schema exerciser exit $code"
           test "$code" = "0" || exit 1
       - name: Findings, if any, travel with the run
         if: always()

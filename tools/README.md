@@ -86,3 +86,11 @@ their head files in seeded sequences, and predicts every verify and append
 verdict from an independent model of the chain; eight logs on the push
 gate, as many as asked on dispatch (`fuzz.yml`). See
 `tools/LOG-EXERCISER-2026-09-06.md`.
+
+## The schema exerciser
+
+`tools/schema_exerciser.py` holds an independent reading of the strict
+loader's acceptance rule and of the validator's keywords and compares it
+with `_schema.py` on generated texts and schema-document pairs; three
+thousand of each on the push gate, as many as asked on dispatch
+(`fuzz.yml`). See `tools/SCHEMA-EXERCISER-2026-09-06.md`.

@@ -44,7 +44,7 @@ _TYPES = {
 _RFC3339 = re.compile(
     r"^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])"
     r"[Tt](?:[01]\d|2[0-3]):[0-5]\d:(?:[0-5]\d|60)(\.\d+)?"
-    r"(?:[Zz]|[+-](?:[01]\d|2[0-3]):[0-5]\d)$")
+    r"(?:[Zz]|[+-](?:[01]\d|2[0-3]):[0-5]\d)\Z")
 
 
 def _check_date_time(value, path):
@@ -186,7 +186,7 @@ def loads(text, what="document"):
     check_bounds(text, what)
     try:
         return json.loads(text, parse_constant=_no_constants,
-                          object_pairs_hook=_no_duplicates)
+                          object_pairs_hook=_no_duplicates, parse_float=_finite_float)
     except SchemaError:
         raise
     except json.JSONDecodeError as exc:
@@ -395,3 +395,17 @@ def run_guarded(main, error_object):
     except BrokenPipeError:
         _stdout_gone("standard output closed before the outcome was written")
         return 3
+
+
+def _finite_float(literal):
+    """A number too large for a float becomes infinity in json.loads, which is
+    as much a non-JSON value as the literal `Infinity` that `_no_constants`
+    refuses; refused on the same ground. Defined last so that no line of
+    the module above it moved when it was added (the mutation lists name
+    lines). Found by the schema exerciser's audit."""
+    value = float(literal)
+    if value != value or value in (float("inf"), float("-inf")):
+        raise SchemaError("the document contains the number %s, which is not "
+                          "representable as a finite value; a value that is not "
+                          "JSON was never validated by anything" % literal)
+    return value

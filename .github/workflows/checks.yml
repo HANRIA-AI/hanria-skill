@@ -1800,3 +1800,43 @@ jobs:
           out=$(python3 skills/hanria/scripts/record.py verify --log "$d/log.jsonl"); code=$?
           test "$code" = "0" || { echo "an empty log with nothing to compare against is empty (exit 0), got $code"; exit 1; }
           grep -q '"status": "empty"' <<<"$out" || { echo "status must be empty"; exit 1; }
+      - name: The strict loader and the validator agree with their reference on three thousand of each
+        run: |
+          set +e
+          # An independent reading of the loader's acceptance rule and of the
+          # validator's keywords, compared on generated texts and
+          # schema-document pairs. Long runs are a dispatch of fuzz.yml.
+          out=$(python3 tools/schema_exerciser.py --texts 3000 --pairs 3000 --seed 3000 --output "$(mktemp -d)" 2>&1); code=$?
+          echo "$out" | tail -2
+          test "$code" = "0" || { echo "the schema exerciser exited $code"; echo "$out" | grep FINDING | head -5; exit 1; }
+          grep -qE '^schema: 3000 texts .* 3000 pairs .*, 0 findings' <<<"$out" || { echo "the summary line is missing or wrong"; exit 1; }
+      - name: A date-time with a trailing newline is not a date-time, and an overflowing number is not JSON
+        run: |
+          set +e
+          # Both found by the schema exerciser's audit. The date-time pattern
+          # ended in a dollar sign, which in Python matches before a trailing
+          # newline; and a number too large for a float became infinity in the
+          # parser although the Infinity literal is refused.
+          python3 - <<'PY'
+          import json, sys
+          sys.path.insert(0, 'skills/hanria/scripts')
+          import _schema
+          sch = {"type": "string", "format": "date-time"}
+          _schema.validate("2027-01-01T00:00:00Z", sch, "$")
+          for bad in ("2027-01-01T00:00:00Z\n", "2027-01-01T00:00:00Z\r\n", "2027-01-01T00:00:00Z "):
+              try:
+                  _schema.validate(bad, sch, "$")
+              except _schema.SchemaError:
+                  continue
+              raise SystemExit("accepted a date-time with trailing %r" % bad[20:])
+          for text in ("1e999", "-1e999", "[1e400]", '{"n": 1e309}'):
+              try:
+                  _schema.loads(text, "t")
+              except _schema.SchemaError as exc:
+                  assert "not representable as a finite value" in str(exc), str(exc)
+                  continue
+              raise SystemExit("accepted an overflowing number: %s" % text)
+          assert _schema.loads("1e308", "t") == 1e308
+          assert _schema.loads("1.7976931348623157e308", "t") == 1.7976931348623157e308
+          print("a trailing newline is refused; an overflowing number is refused; the largest finite float is accepted")
+          PY
