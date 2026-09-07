@@ -139,6 +139,12 @@ this skill gives you enforcement, that claim is false.**
   `format` value, that it does not implement — checked across the whole schema, not only the branches
   a document happens to reach. It is not a general-purpose JSON Schema validator and should not be
   used as one.
+- **`const` and `enum` use Python equality, not JSON Schema value equality.** In particular, `true`
+  equals `1`, and `1` equals `1.0`. No current schema exposes a permit path through this departure:
+  every current `const` and `enum` value is a string.
+- **`integer` means a Python `int`, not every mathematically integral JSON number.** In particular,
+  `3.0` is refused where JSON Schema would accept it as an integer. No current schema exposes a
+  permit path through this departure: no current schema uses the `integer` type.
 
 ## What is not built at all
 
