@@ -155,7 +155,7 @@ Full statement: <https://hanria.ai/boundaries/>
 
 ## Links
 
-- <https://hanria.ai/> — overview, and the same limits in 日本語 / 中文 / 한국어
+- <https://hanria.ai/developers/> — overview, and the same limits in 日本語 / 中文 / 한국어
 - <https://hanria.dev/> — developer surface
 - <https://hanria.ai/llms.txt> — the agent-facing summary
 

@@ -1,7 +1,7 @@
 {
   "name": "hanria",
   "version": "0.2.0",
-  "homepage": "https://hanria.ai/",
+  "homepage": "https://hanria.ai/developers/",
   "summary": "Check a proposed agent action against an operator-authored mandate and receive permit, deny or escalate with the governing clause, then append the decision to a hash-chained local log. Works with no runtime and no network. Advisory: it checks and records, it cannot enforce.",
   "runtime_required": false,
   "runtime_available": false,
